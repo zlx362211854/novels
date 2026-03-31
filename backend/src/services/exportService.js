@@ -1,0 +1,98 @@
+const db = require('../config/database');
+
+function exportToMarkdown(params) {
+  const { novelId, scope, volumeId } = params;
+
+  const novelStmt = db.prepare('SELECT * FROM novels WHERE id = ?');
+  const novel = novelStmt.get(novelId);
+  if (!novel) throw new Error('小说不存在');
+
+  let markdown = `# ${novel.title}\n\n`;
+
+  if (novel.description) {
+    markdown += `> ${novel.description}\n\n`;
+  }
+
+  markdown += `类型: ${novel.genre || '未分类'}\n\n`;
+  markdown += `---\n\n`;
+
+  const archStmt = db.prepare('SELECT * FROM architectures WHERE novel_id = ? ORDER BY id');
+  const architectures = archStmt.all(novelId);
+
+  const chapterStmt = db.prepare('SELECT * FROM chapters WHERE novel_id = ? ORDER BY chapter_number');
+  const chapters = chapterStmt.all(novelId);
+
+  const fullArch = architectures.find(a => a.level === 'full');
+  if (fullArch) {
+    markdown += `## 全本架构: ${fullArch.title}\n\n`;
+    if (fullArch.plot_outline) {
+      markdown += `### 情节大纲\n\n${fullArch.plot_outline}\n\n`;
+    }
+    markdown += `---\n\n`;
+  }
+
+  const volumes = architectures.filter(a => a.level === 'volume');
+  const chapterArchs = architectures.filter(a => a.level === 'chapter');
+
+  if (scope === 'volume' && volumeId) {
+    const volume = volumes.find(v => v.id === parseInt(volumeId));
+    if (volume) {
+      markdown += exportVolume(volume, chapterArchs, chapters);
+    }
+  } else {
+    volumes.forEach(volume => {
+      markdown += exportVolume(volume, chapterArchs, chapters);
+    });
+
+    const orphanChapters = chapters.filter(c => !c.architecture_id);
+    orphanChapters.forEach(chapter => {
+      markdown += exportChapter(chapter);
+    });
+  }
+
+  return markdown;
+}
+
+function exportVolume(volume, chapterArchs, chapters) {
+  let markdown = `## 卷: ${volume.title}\n\n`;
+
+  if (volume.plot_outline) {
+    markdown += `### 情节大纲\n\n${volume.plot_outline}\n\n`;
+  }
+
+  const volumeChapterArchs = chapterArchs.filter(a => a.parent_id === volume.id);
+  volumeChapterArchs.forEach(arch => {
+    const archChapters = chapters.filter(c => c.architecture_id === arch.id);
+    archChapters.forEach(chapter => {
+      markdown += exportChapter(chapter, arch);
+    });
+  });
+
+  const volumeChapters = chapters.filter(c => c.architecture_id === volume.id);
+  volumeChapters.forEach(chapter => {
+    markdown += exportChapter(chapter);
+  });
+
+  markdown += `---\n\n`;
+  return markdown;
+}
+
+function exportChapter(chapter, arch) {
+  let markdown = `### 第${chapter.chapter_number}章: ${chapter.title || '未命名'}\n\n`;
+
+  if (arch) {
+    if (arch.plot_outline) {
+      markdown += `> 情节: ${arch.plot_outline}\n\n`;
+    }
+  }
+
+  if (chapter.content) {
+    markdown += `${chapter.content}\n\n`;
+  }
+
+  return markdown;
+}
+
+module.exports = {
+  exportToMarkdown
+};

@@ -1,0 +1,75 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.prose {
+  line-height: 2;
+}
+
+.prose p {
+  margin-bottom: 1.5em;
+  line-height: 2;
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  margin-top: 1.5em;
+  margin-bottom: 0.75em;
+}
+
+.prose ul, .prose ol {
+  margin-top: 1em;
+  margin-bottom: 1em;
+  padding-left: 1.5em;
+}
+
+.prose li {
+  margin-bottom: 0.5em;
+  line-height: 1.8;
+}
+
+.prose blockquote {
+  border-left: 4px solid #e5e7eb;
+  padding-left: 1em;
+  margin: 1.5em 0;
+  color: #6b7280;
+  font-style: italic;
+}
+
+.prose code {
+  background-color: #f3f4f6;
+  padding: 0.2em 0.4em;
+  border-radius: 0.25em;
+  font-size: 0.9em;
+}
+
+.prose pre {
+  background-color: #1f2937;
+  color: #f9fafb;
+  padding: 1em;
+  border-radius: 0.5em;
+  overflow-x: auto;
+  margin: 1.5em 0;
+}
+
+.prose pre code {
+  background-color: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+.prose hr {
+  border-color: #e5e7eb;
+  margin: 2em 0;
+}
+
+.prose strong {
+  font-weight: 600;
+}
+
+.prose em {
+  font-style: italic;
+}
