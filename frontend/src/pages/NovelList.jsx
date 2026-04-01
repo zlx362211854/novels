@@ -1,11 +1,25 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
 import { novelApi } from '../services/api';
+import { useFeedback } from '../components/ui/FeedbackProvider';
+import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
+import { CreateNovelModal, NovelProjectCard } from '../components/ui/NovelListParts';
+
+const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
+  month: 'short',
+  day: 'numeric',
+});
+
+const getUpdatedTimestamp = (value) => {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
 
 function NovelList() {
+  const feedback = useFeedback();
   const [novels, setNovels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [newNovel, setNewNovel] = useState({ title: '', description: '', genre: '' });
 
   useEffect(() => {
@@ -13,142 +27,156 @@ function NovelList() {
   }, []);
 
   const loadNovels = async () => {
+    setLoading(true);
     try {
       const res = await novelApi.getAll();
       setNovels(res.data);
     } catch (error) {
       console.error('加载小说列表失败:', error);
+      feedback.error('小说列表加载失败，请稍后重试。');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCreate = async (e) => {
-    e.preventDefault();
-    if (!newNovel.title.trim()) return;
+  const sortedNovels = useMemo(() => {
+    return [...novels].sort(
+      (left, right) =>
+        getUpdatedTimestamp(right.updated_at) - getUpdatedTimestamp(left.updated_at) || left.title.localeCompare(right.title)
+    );
+  }, [novels]);
+
+  const stats = useMemo(() => {
+    const genres = new Set(sortedNovels.map((novel) => novel.genre).filter(Boolean));
+    const latestNovel = sortedNovels[0];
+    return [
+      { label: '项目总数', value: sortedNovels.length, caption: sortedNovels.length ? '所有进行中的小说项目' : '还没有创建项目' },
+      { label: '已分类题材', value: genres.size, caption: '当前已使用的题材数量' },
+      {
+        label: '最近更新',
+        value: latestNovel?.updated_at ? dateFormatter.format(new Date(latestNovel.updated_at)) : '-',
+        caption: '按最近更新时间浏览更省心',
+      },
+    ];
+  }, [sortedNovels]);
+
+  const formatUpdatedAt = (value) => (value ? dateFormatter.format(new Date(value)) : '待更新');
+
+  const handleCreate = async (event) => {
+    event.preventDefault();
+    if (!newNovel.title.trim()) {
+      feedback.warning('请先填写小说标题。');
+      return;
+    }
+
+    setCreating(true);
     try {
       await novelApi.create(newNovel);
       setNewNovel({ title: '', description: '', genre: '' });
       setShowCreate(false);
+      feedback.success('新小说已创建。');
       loadNovels();
     } catch (error) {
       console.error('创建小说失败:', error);
+      feedback.error(error.response?.data?.error || '创建失败，请稍后再试。');
+    } finally {
+      setCreating(false);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm('确定要删除这部小说吗？所有相关数据将被删除。')) return;
+  const handleDelete = async (novel) => {
+    const confirmed = await feedback.confirm({
+      title: `删除「${novel.title}」？`,
+      message: '删除后，这部小说的架构、章节和版本历史都会一并移除。',
+      confirmText: '确认删除',
+      cancelText: '保留项目',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
-      await novelApi.delete(id);
+      await novelApi.delete(novel.id);
+      feedback.success('小说项目已删除。');
       loadNovels();
     } catch (error) {
       console.error('删除小说失败:', error);
+      feedback.error(error.response?.data?.error || '删除失败，请稍后再试。');
     }
   };
 
   if (loading) {
-    return <div className="flex justify-center items-center h-64">加载中...</div>;
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center text-[color:var(--ink-muted)]">
+        正在整理小说索引...
+      </div>
+    );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">我的小说</h1>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-        >
-          创建新小说
-        </button>
-      </div>
-
-      {showCreate && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4">创建新小说</h2>
-            <form onSubmit={handleCreate}>
-              <div className="mb-4">
-                <label className="block text-sm font-medium mb-1">标题 *</label>
-                <input
-                  type="text"
-                  value={newNovel.title}
-                  onChange={(e) => setNewNovel({ ...newNovel, title: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
-                  required
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm font-medium mb-1">简介</label>
-                <textarea
-                  value={newNovel.description}
-                  onChange={(e) => setNewNovel({ ...newNovel, description: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
-                  rows={3}
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm font-medium mb-1">类型</label>
-                <input
-                  type="text"
-                  value={newNovel.genre}
-                  onChange={(e) => setNewNovel({ ...newNovel, genre: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
-                  placeholder="如：玄幻、都市、科幻"
-                />
-              </div>
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCreate(false)}
-                  className="px-4 py-2 border rounded hover:bg-gray-100"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                >
-                  创建
-                </button>
-              </div>
-            </form>
-          </div>
+    <PageShell
+      eyebrow="Project Index"
+      title="我的小说项目"
+      description="把创作项目当成一页页可翻阅的工作文档。进入项目后，可以继续拆架构、写章节、回看版本。"
+      actions={
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-[color:var(--ink-muted)]">新的项目会自动进入索引页，方便随时回到写作现场。</p>
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="rounded-full bg-slate-500 px-4 py-2 text-sm font-medium text-white shadow-[0_12px_24px_rgba(38,28,18,0.14)] transition hover:translate-y-[-1px] hover:bg-[color:var(--accent)]"
+          >
+            创建新项目
+          </button>
         </div>
-      )}
+      }
+    >
+      <StatGrid items={stats} />
 
-      {novels.length === 0 ? (
-        <div className="text-center text-gray-500 py-12">
-          还没有创建任何小说，点击上方按钮开始创作
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {novels.map((novel) => (
-            <div key={novel.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-              <Link to={`/novels/${novel.id}`}>
-                <h3 className="text-lg font-semibold mb-2 hover:text-blue-500">{novel.title}</h3>
-              </Link>
-              {novel.description && (
-                <p className="text-gray-600 text-sm mb-2 line-clamp-2">{novel.description}</p>
-              )}
-              {novel.genre && (
-                <span className="inline-block bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded mb-2">
-                  {novel.genre}
-                </span>
-              )}
-              <div className="flex justify-between items-center mt-3 text-sm text-gray-500">
-                <span>更新于 {new Date(novel.updated_at).toLocaleDateString()}</span>
-                <button
-                  onClick={() => handleDelete(novel.id)}
-                  className="text-red-500 hover:text-red-600"
-                >
-                  删除
-                </button>
-              </div>
+      <SectionCard title="项目列表" description="最近更新的项目排在前面，方便回到正在推进的作品。">
+        {sortedNovels.length === 0 ? (
+          <div className="rounded-[32px] border border-dashed border-[color:rgba(216,203,184,0.92)] bg-[linear-gradient(180deg,rgba(255,252,247,0.92),rgba(247,239,226,0.86))] px-6 py-12 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
+            <p className="text-[0.72rem] font-semibold uppercase tracking-[0.34em] text-[color:var(--ink-muted)]">Empty Index</p>
+            <p className="mt-3 text-xl font-semibold tracking-[-0.03em] text-[color:var(--ink)]">还没有创建任何小说</p>
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-[color:var(--ink-muted)]">
+              先建立一个项目，再逐步补上简介、题材和章节结构。索引会把每个作品都整理成一张可继续推进的手稿卡片。
+            </p>
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCreate(true)}
+                className="rounded-full bg-slate-500 px-4 py-2 text-sm font-medium text-white shadow-[0_12px_24px_rgba(38,28,18,0.14)] transition hover:bg-[color:var(--accent)]"
+              >
+                创建第一个项目
+              </button>
+              <span className="rounded-full border border-[color:rgba(216,203,184,0.92)] bg-white/60 px-4 py-2 text-sm text-[color:var(--ink-muted)]">
+                创建后可直接进入工作台继续写作
+              </span>
             </div>
-          ))}
-        </div>
-      )}
-    </div>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {sortedNovels.map((novel) => (
+              <NovelProjectCard
+                key={novel.id}
+                novel={novel}
+                updatedLabel={formatUpdatedAt(novel.updated_at)}
+                onDelete={handleDelete}
+              />
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
+      {showCreate ? (
+        <CreateNovelModal
+          creating={creating}
+          newNovel={newNovel}
+          onCancel={() => setShowCreate(false)}
+          onChange={setNewNovel}
+          onSubmit={handleCreate}
+        />
+      ) : null}
+    </PageShell>
   );
 }
 

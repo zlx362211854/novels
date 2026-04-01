@@ -1,13 +1,17 @@
-import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { chapterApi, architectureApi } from '../services/api';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { architectureApi, chapterApi } from '../services/api';
+import { useFeedback } from '../components/ui/FeedbackProvider';
+import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
 
 function ChapterManager() {
   const { id } = useParams();
+  const feedback = useFeedback();
   const [chapters, setChapters] = useState([]);
   const [architectures, setArchitectures] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [newChapter, setNewChapter] = useState({
     chapterNumber: 1,
     title: '',
@@ -19,6 +23,7 @@ function ChapterManager() {
   }, [id]);
 
   const loadData = async () => {
+    setLoading(true);
     try {
       const [chapterRes, archRes] = await Promise.all([
         chapterApi.getByNovelId(id),
@@ -26,19 +31,32 @@ function ChapterManager() {
       ]);
       setChapters(chapterRes.data);
       setArchitectures(archRes.data);
-      setNewChapter(prev => ({
+      setNewChapter((prev) => ({
         ...prev,
-        chapterNumber: chapterRes.data.length + 1,
+        chapterNumber: Math.max(...chapterRes.data.map((chapter) => chapter.chapter_number || 0), 0) + 1,
       }));
     } catch (error) {
       console.error('加载数据失败:', error);
+      feedback.error('章节列表加载失败，请稍后重试。');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCreate = async (e) => {
-    e.preventDefault();
+  const chapterArchs = architectures.filter((arch) => arch.level === 'chapter');
+
+  const stats = useMemo(
+    () => [
+      { label: '章节总数', value: chapters.length, caption: '当前小说已有的章节' },
+      { label: '草稿', value: chapters.filter((chapter) => chapter.status === 'draft').length, caption: '还需要继续写' },
+      { label: '已生成', value: chapters.filter((chapter) => chapter.status === 'generated').length, caption: '已经有正文内容' },
+    ],
+    [chapters]
+  );
+
+  const handleCreate = async (event) => {
+    event.preventDefault();
+    setCreating(true);
     try {
       await chapterApi.create(id, {
         chapterNumber: newChapter.chapterNumber,
@@ -46,135 +64,178 @@ function ChapterManager() {
         architectureId: newChapter.architectureId,
         status: 'draft',
       });
+      setShowCreate(false);
       setNewChapter({
         chapterNumber: chapters.length + 2,
         title: '',
         architectureId: null,
       });
-      setShowCreate(false);
+      feedback.success('新章节已创建。');
       loadData();
     } catch (error) {
       console.error('创建章节失败:', error);
+      feedback.error(error.response?.data?.error || '创建章节失败，请稍后再试。');
+    } finally {
+      setCreating(false);
     }
   };
 
-  const handleDelete = async (chapterId) => {
-    if (!confirm('确定要删除这个章节吗？')) return;
+  const handleDelete = async (chapter) => {
+    const confirmed = await feedback.confirm({
+      title: `删除第 ${chapter.chapter_number} 章？`,
+      message: '删除后，这一章的正文与关联内容都会被移除。',
+      confirmText: '确认删除',
+      cancelText: '保留章节',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
-      await chapterApi.delete(chapterId);
+      await chapterApi.delete(chapter.id);
+      feedback.success('章节已删除。');
       loadData();
     } catch (error) {
       console.error('删除章节失败:', error);
+      feedback.error(error.response?.data?.error || '删除失败，请稍后再试。');
     }
   };
 
-  const chapterArchs = architectures.filter(a => a.level === 'chapter');
-
   if (loading) {
-    return <div className="flex justify-center items-center h-64">加载中...</div>;
+    return <div className="flex min-h-[50vh] items-center justify-center text-slate-500">正在加载章节列表...</div>;
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="mb-6">
-        <Link to={`/novels/${id}`} className="text-blue-500 hover:underline">← 返回小说详情</Link>
-      </div>
+    <PageShell
+      eyebrow="Chapter Index"
+      title="章节列表"
+      description="这里适合集中查看所有章节状态；如果你已经有章架构，优先从架构页进入正文生产会更顺。"
+      actions={
+        <>
+          <Link
+            to={`/novels/${id}`}
+            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-white"
+          >
+            返回小说工作台
+          </Link>
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="rounded-full bg-slate-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-600"
+          >
+            手动创建章节
+          </button>
+        </>
+      }
+    >
+      <StatGrid items={stats} />
 
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">章节管理</h1>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-        >
-          创建章节
-        </button>
-      </div>
+      <SectionCard title="章节清单" description="手动创建更适合补缺口；大批量正文建议回到架构页统一生成。">
+        {chapters.length === 0 ? (
+          <div className="rounded-[28px] border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center">
+            <p className="text-lg font-semibold text-slate-800">还没有章节</p>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              如果已经有章架构，可以直接去架构页生成正文；如果只是临时补一章，也可以在这里手动创建。
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {chapters.map((chapter) => (
+              <div key={chapter.id} className="flex flex-col gap-3 rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_12px_32px_rgba(15,23,42,0.04)] md:flex-row md:items-center md:justify-between">
+                <Link to={`/chapters/${chapter.id}`} className="min-w-0 flex-1">
+                  <p className="text-base font-semibold text-slate-900">
+                    第{chapter.chapter_number}章 · {chapter.title || '未命名'}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {chapter.content ? `${chapter.content.length} 字` : '还没有正文内容'}
+                  </p>
+                </Link>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${chapter.status === 'generated' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                    {chapter.status === 'generated' ? '已生成' : '草稿'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(chapter)}
+                    className="rounded-full border border-rose-200 px-3 py-1.5 text-sm font-medium text-rose-600 transition hover:bg-rose-50"
+                  >
+                    删除
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
 
-      {showCreate && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4">创建新章节</h2>
-            <form onSubmit={handleCreate}>
-              <div className="mb-4">
-                <label className="block text-sm font-medium mb-1">章节序号 *</label>
+      {showCreate ? (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl rounded-[32px] border border-white/60 bg-white p-6 shadow-2xl">
+            <div className="mb-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Create Chapter</p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-900">手动创建章节</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                手动创建适合补空位或插入过渡章；如果已经有章架构，记得顺手挂上关联，方便后续重生成。
+              </p>
+            </div>
+            <form onSubmit={handleCreate} className="space-y-4">
+              <label className="grid gap-2">
+                <span className="text-sm font-medium text-slate-700">章节序号</span>
                 <input
                   type="number"
-                  value={newChapter.chapterNumber}
-                  onChange={(e) => setNewChapter({ ...newChapter, chapterNumber: parseInt(e.target.value) })}
-                  className="w-full border rounded px-3 py-2"
                   min="1"
+                  value={newChapter.chapterNumber}
+                  onChange={(event) => setNewChapter({ ...newChapter, chapterNumber: parseInt(event.target.value || '1', 10) })}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
                   required
                 />
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm font-medium mb-1">章节标题</label>
+              </label>
+              <label className="grid gap-2">
+                <span className="text-sm font-medium text-slate-700">章节标题</span>
                 <input
                   type="text"
                   value={newChapter.title}
-                  onChange={(e) => setNewChapter({ ...newChapter, title: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
+                  onChange={(event) => setNewChapter({ ...newChapter, title: event.target.value })}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
+                  placeholder="例如：风雪夜归人"
                 />
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm font-medium mb-1">关联架构</label>
+              </label>
+              <label className="grid gap-2">
+                <span className="text-sm font-medium text-slate-700">关联章架构</span>
                 <select
                   value={newChapter.architectureId || ''}
-                  onChange={(e) => setNewChapter({ ...newChapter, architectureId: e.target.value ? parseInt(e.target.value) : null })}
-                  className="w-full border rounded px-3 py-2"
+                  onChange={(event) => setNewChapter({ ...newChapter, architectureId: event.target.value ? parseInt(event.target.value, 10) : null })}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
                 >
-                  <option value="">无</option>
-                  {chapterArchs.map(arch => (
-                    <option key={arch.id} value={arch.id}>{arch.title}</option>
+                  <option value="">不关联</option>
+                  {chapterArchs.map((arch) => (
+                    <option key={arch.id} value={arch.id}>
+                      {arch.title}
+                    </option>
                   ))}
                 </select>
-              </div>
-              <div className="flex justify-end gap-2">
+              </label>
+              <div className="flex flex-wrap justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setShowCreate(false)}
-                  className="px-4 py-2 border rounded hover:bg-gray-100"
+                  className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
                 >
                   取消
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  disabled={creating}
+                  className="rounded-full bg-slate-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  创建
+                  {creating ? '创建中...' : '创建章节'}
                 </button>
               </div>
             </form>
           </div>
         </div>
-      )}
-
-      {chapters.length === 0 ? (
-        <p className="text-center text-gray-500 py-12">还没有创建任何章节</p>
-      ) : (
-        <div className="space-y-2">
-          {chapters.map((chapter) => (
-            <div key={chapter.id} className="border rounded-lg p-4 flex justify-between items-center">
-              <Link to={`/chapters/${chapter.id}`} className="flex-1 hover:text-blue-500">
-                <span className="font-medium">第{chapter.chapter_number}章: {chapter.title || '未命名'}</span>
-                <span className={`ml-3 text-xs px-2 py-1 rounded ${
-                  chapter.status === 'draft' ? 'bg-gray-100 text-gray-600' :
-                  chapter.status === 'generated' ? 'bg-green-100 text-green-600' :
-                  'bg-blue-100 text-blue-600'
-                }`}>
-                  {chapter.status === 'draft' ? '草稿' : chapter.status === 'generated' ? '已生成' : chapter.status}
-                </span>
-              </Link>
-              <button
-                onClick={() => handleDelete(chapter.id)}
-                className="text-red-500 hover:text-red-600 ml-4"
-              >
-                删除
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+      ) : null}
+    </PageShell>
   );
 }
 

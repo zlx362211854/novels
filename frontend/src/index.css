@@ -1,75 +1,230 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+:root {
+  --paper: #f7efe3;
+  --paper-strong: #fffaf3;
+  --ink: #1e232c;
+  --ink-muted: #5e6776;
+  --border: #d8cbb8;
+  --accent: #8b6537;
+  --success: #4d755a;
+  --warning: #9a6723;
+  --danger: #a94d44;
+  --shadow-soft: 0 18px 45px rgba(38, 28, 18, 0.08);
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 14% 10%, rgba(255, 255, 255, 0.72), transparent 24%),
+    radial-gradient(circle at 82% 18%, rgba(184, 161, 128, 0.18), transparent 26%),
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.46), transparent 34%),
+    linear-gradient(180deg, #fbf6ee 0%, #f3eadf 44%, #efe3d3 100%);
+  font-family:
+    "Iowan Old Style",
+    "Palatino Linotype",
+    "Book Antiqua",
+    Georgia,
+    "Noto Serif SC",
+    "Source Han Serif SC",
+    serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  font-synthesis: none;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.12)),
+    repeating-linear-gradient(
+      90deg,
+      rgba(129, 107, 76, 0.018) 0,
+      rgba(129, 107, 76, 0.018) 1px,
+      transparent 1px,
+      transparent 68px
+    );
+  color: var(--ink);
+  line-height: 1.65;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid rgba(139, 101, 55, 0.32);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(139, 101, 55, 0.18);
+}
+
+.page-shell {
+  position: relative;
+}
+
+.hero-panel {
+  background:
+    linear-gradient(135deg, rgba(255, 250, 243, 0.98), rgba(246, 237, 225, 0.94)),
+    radial-gradient(circle at top right, rgba(207, 187, 157, 0.3), transparent 30%);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-soft);
+}
+
+.hero-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 24%),
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.42), transparent 28%);
+  opacity: 0.75;
+}
+
+.hero-panel > * {
+  position: relative;
+}
+
+.section-shell {
+  box-shadow: var(--shadow-soft);
 }
 
 .prose {
-  line-height: 2;
+  max-width: 72ch;
+  color: var(--ink);
+  line-height: 1.9;
+  text-wrap: pretty;
 }
 
-.prose p {
-  margin-bottom: 1.5em;
-  line-height: 2;
+.prose :where(p, ul, ol, blockquote, pre, table) {
+  margin-bottom: 1.35em;
 }
 
-.prose h1, .prose h2, .prose h3, .prose h4 {
-  margin-top: 1.5em;
-  margin-bottom: 0.75em;
+.prose :where(h1, h2, h3, h4) {
+  margin-top: 2em;
+  margin-bottom: 0.7em;
+  color: var(--ink);
+  line-height: 1.25;
+  letter-spacing: -0.02em;
 }
 
-.prose ul, .prose ol {
+.prose :where(h1) {
+  font-size: 2rem;
+}
+
+.prose :where(h2) {
+  font-size: 1.55rem;
+}
+
+.prose :where(h3) {
+  font-size: 1.25rem;
+}
+
+.prose :where(ul, ol) {
   margin-top: 1em;
-  margin-bottom: 1em;
   padding-left: 1.5em;
 }
 
-.prose li {
-  margin-bottom: 0.5em;
+.prose :where(li) {
+  margin-bottom: 0.55em;
   line-height: 1.8;
 }
 
-.prose blockquote {
-  border-left: 4px solid #e5e7eb;
-  padding-left: 1em;
-  margin: 1.5em 0;
-  color: #6b7280;
+.prose :where(blockquote) {
+  border-left: 3px solid rgba(139, 101, 55, 0.3);
+  padding: 0.2em 0 0.2em 1.1em;
+  margin: 1.65em 0;
+  color: var(--ink-muted);
   font-style: italic;
 }
 
-.prose code {
-  background-color: #f3f4f6;
-  padding: 0.2em 0.4em;
-  border-radius: 0.25em;
+.prose :where(code) {
+  background-color: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(216, 203, 184, 0.75);
+  padding: 0.16em 0.42em;
+  border-radius: 0.45em;
   font-size: 0.9em;
 }
 
-.prose pre {
-  background-color: #1f2937;
-  color: #f9fafb;
-  padding: 1em;
-  border-radius: 0.5em;
+.prose :where(pre) {
+  background:
+    linear-gradient(180deg, rgba(255, 250, 243, 0.92), rgba(247, 239, 226, 0.96));
+  color: var(--ink);
+  border: 1px solid rgba(216, 203, 184, 0.9);
+  padding: 1.1em 1.2em;
+  border-radius: 1rem;
   overflow-x: auto;
-  margin: 1.5em 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
-.prose pre code {
+.prose :where(pre code) {
   background-color: transparent;
+  border: 0;
   padding: 0;
   color: inherit;
+  font-size: 0.95em;
 }
 
-.prose hr {
-  border-color: #e5e7eb;
-  margin: 2em 0;
+.prose :where(hr) {
+  border-color: rgba(216, 203, 184, 0.8);
+  margin: 2.2em 0;
 }
 
-.prose strong {
+.prose :where(strong) {
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.prose :where(em) {
+  font-style: italic;
+}
+
+.prose :where(table) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.96em;
+}
+
+.prose :where(th, td) {
+  border-bottom: 1px solid rgba(216, 203, 184, 0.7);
+  padding: 0.8em 0.9em;
+  vertical-align: top;
+}
+
+.prose :where(th) {
+  color: var(--ink);
   font-weight: 600;
 }
 
-.prose em {
-  font-style: italic;
+.prose :where(a) {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+.prose :where(a:hover) {
+  color: color-mix(in srgb, var(--accent) 88%, black);
 }
