@@ -5,6 +5,49 @@ import { useFeedback } from '../components/ui/FeedbackProvider';
 import JsonField from '../components/ui/JsonField';
 import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
 
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Card, CardContent } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Loader2, Plus, Pencil, Trash2, Sparkles, FileText, ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react';
+
+function ExpandableText({ text, maxLength = 120, className = '' }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!text) return null;
+  if (text.length <= maxLength) return <p className={className}>{text}</p>;
+  return (
+    <p className={className}>
+      {expanded ? text : `${text.slice(0, maxLength)}…`}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="ml-1.5 text-xs font-medium text-slate-400 hover:text-slate-600"
+      >
+        {expanded ? '收起' : '展开'}
+      </button>
+    </p>
+  );
+}
+
 const initialForm = {
   level: 'full',
   parentId: null,
@@ -38,6 +81,7 @@ function ArchitectureManager() {
   const [previewChapterNumber, setPreviewChapterNumber] = useState(1);
   const [savingPreview, setSavingPreview] = useState(false);
   const [formData, setFormData] = useState(initialForm);
+  const [expandedVolumes, setExpandedVolumes] = useState({});
 
   useEffect(() => {
     loadData();
@@ -70,6 +114,25 @@ function ArchitectureManager() {
     resetForm();
   };
 
+  const closeBatchDialog = async () => {
+    if (batchGenerating) {
+      feedback.warning('正在生成中，请等待完成后再关闭。');
+      return;
+    }
+    if (generatedChapters.length > 0) {
+      const confirmed = await feedback.confirm({
+        title: '草稿尚未保存',
+        message: `已生成 ${generatedChapters.length} 条章架构草稿，关闭后将丢失。`,
+        confirmText: '丢弃并关闭',
+        cancelText: '继续编辑',
+        variant: 'danger',
+      });
+      if (!confirmed) return;
+      setGeneratedChapters([]);
+    }
+    setShowChapterBatch(false);
+  };
+
   const getNextChapterNumber = (archId) => {
     const existing = chapters.find((chapter) => chapter.architecture_id === archId);
     if (existing) return existing.chapter_number;
@@ -77,9 +140,15 @@ function ArchitectureManager() {
     return max + 1;
   };
 
+  const toggleVolumeExpand = (volumeId) => {
+    setExpandedVolumes((prev) => ({
+      ...prev,
+      [volumeId]: !prev[volumeId],
+    }));
+  };
+
   const startCreate = () => {
     setEditingId(null);
-    // 如果已存在全本架构，新建时默认选择卷架构，并自动设置父级
     const existingFullArch = architectures.find((arch) => arch.level === 'full');
     setFormData({
       ...initialForm,
@@ -237,7 +306,6 @@ function ArchitectureManager() {
       const res = await architectureApi.generateChapterContent(id, chapterArch.id);
       const chapterNumber = getNextChapterNumber(chapterArch.id);
 
-      // 直接保存章节，不显示弹窗
       await chapterApi.create(id, {
         architectureId: chapterArch.id,
         chapterNumber: chapterNumber,
@@ -335,454 +403,566 @@ function ArchitectureManager() {
   );
 
   if (loading) {
-    return <div className="flex min-h-[50vh] items-center justify-center text-slate-500">正在加载架构工作台...</div>;
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <div className="flex items-center gap-3 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span>正在加载架构工作台...</span>
+        </div>
+      </div>
+    );
   }
 
   return (
     <PageShell
       eyebrow="Architecture Studio"
-      title="小说架构工作台"
-      description="先稳住三层架构，再决定是批量拆章，还是直接进入正文生产。这里把结构编辑和 AI 生产拆成了两个更清晰的工作区。"
+      title="架构工作台"
+      description="先稳住三层架构，再决定是批量拆章，还是直接进入正文生产。"
       actions={
-        <>
-          <Link
-            to={`/novels/${id}`}
-            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-white"
-          >
-            返回小说工作台
-          </Link>
-          {volumes.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => {
-                setShowChapterBatch(true);
-                setGeneratedChapters([]);
-                setSelectedVolumeId('');
-              }}
-              className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100"
-            >
-              批量生成章架构
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={startCreate}
-            className="rounded-full bg-slate-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-600"
-          >
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="ghost" size="sm" asChild className="w-fit">
+            <Link to={`/novels/${id}`} className="flex items-center justify-center">
+              <ArrowLeft className="mr-1.5 h-4 w-4" />
+              返回
+            </Link>
+          </Button>
+          <div className="h-4 w-px bg-border" />
+          <Button size="sm" onClick={startCreate}>
+            <Plus className="mr-1.5 h-4 w-4" />
             新建架构
-          </button>
-        </>
+          </Button>
+        </div>
       }
     >
       <StatGrid items={stats} />
 
-      <div className="space-y-6">
-        <SectionCard
-          title="结构编辑区"
-          description="这里优先处理全本、卷、章三级结构。先把骨架写顺，后面的生成结果会稳定很多。"
-          actions={
-            <button
-              type="button"
-              onClick={startCreate}
-              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-            >
-              添加一条架构
-            </button>
-          }
-        >
-          <div className="space-y-6">
-            {fullArch ? (
-              <div className="rounded-[28px] border border-sky-200 bg-sky-50/70 p-5">
+      <SectionCard
+        title="结构编辑区"
+        description="这里优先处理全本、卷、章三级结构。先把骨架写顺，后面的生成结果会稳定很多。">
+        <div className="space-y-6">
+          {/* Full Architecture */}
+          {fullArch ? (
+            <Card className="border-sky-200/60 bg-sky-50/40">
+              <CardContent className="p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-sky-700 shadow-sm">全本</span>
-                    <h3 className="mt-3 text-xl font-semibold text-slate-900">{fullArch.title}</h3>
+                  <div className="space-y-2">
+                    <Badge variant="secondary" className="bg-sky-100 text-sky-700 hover:bg-sky-100">
+                      全本
+                    </Badge>
+                    <h3 className="text-xl font-semibold text-slate-900">{fullArch.title}</h3>
                   </div>
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => startEdit(fullArch)} className="rounded-full border border-white px-3 py-1.5 text-sm text-slate-700 hover:bg-white">
+                    <Button variant="outline" size="sm" onClick={() => startEdit(fullArch)}>
+                      <Pencil className="h-4 w-4" />
                       编辑
-                    </button>
-                    <button type="button" onClick={() => handleDelete(fullArch)} className="rounded-full border border-rose-200 px-3 py-1.5 text-sm text-rose-600 hover:bg-white">
+                    </Button>
+                    <Button variant="destructive" size="sm" onClick={() => handleDelete(fullArch)}>
+                      <Trash2 className="h-4 w-4" />
                       删除
-                    </button>
+                    </Button>
                   </div>
                 </div>
-                <p className="mt-4 text-sm leading-7 text-slate-600">{fullArch.plot_outline || '还没有全本情节大纲。'}</p>
-              </div>
-            ) : (
-              <div className="rounded-[28px] border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center">
-                <p className="text-lg font-semibold text-slate-800">还没有全本架构</p>
-                <p className="mt-2 text-sm leading-6 text-slate-500">建议先建立总纲，再去拆卷和章节。</p>
-              </div>
-            )}
+                <ExpandableText
+                  text={fullArch.plot_outline}
+                  maxLength={120}
+                  className="mt-4 text-sm leading-7 text-slate-600"
+                />
+                {!fullArch.plot_outline && (
+                  <p className="mt-4 text-sm leading-7 text-slate-600">还没有全本情节大纲。</p>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-5 py-8 text-center">
+              <p className="text-lg font-semibold text-slate-800">还没有全本架构</p>
+              <p className="mt-2 text-sm leading-6 text-slate-500">建议先建立总纲，再去拆卷和章节。</p>
+            </div>
+          )}
 
-            {volumes.length > 0 ? (
-              <div className="space-y-4">
-                {volumes.map((volume) => {
-                  const volumeChapterArchs = chapterArchs.filter((arch) => arch.parent_id === volume.id);
-                  return (
-                    <div key={volume.id} className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_12px_32px_rgba(15,23,42,0.05)]">
+          {/* Volume Architectures */}
+          {volumes.length > 0 && (
+            <div className="space-y-4">
+              {volumes.map((volume) => {
+                const volumeChapterArchs = chapterArchs.filter((arch) => arch.parent_id === volume.id);
+                const isExpanded = expandedVolumes[volume.id] === true;
+                return (
+                  <Card key={volume.id} className="shadow-sm">
+                    <CardContent className="p-5">
                       <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">卷</span>
-                          <h3 className="mt-3 text-lg font-semibold text-slate-900">{volume.title}</h3>
-                          <p className="mt-2 text-sm text-slate-500">
+                        <div className="space-y-2">
+                          <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
+                            卷
+                          </Badge>
+                          <h3 className="text-lg font-semibold text-slate-900">{volume.title}</h3>
+                          <p className="text-sm text-slate-500">
                             {volumeChapterArchs.length} 条章架构
                           </p>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          {volumeChapterArchs.length > 0 ? (
-                            <button
-                              type="button"
+                        <div className="flex flex-wrap items-center gap-2">
+                          {volumeChapterArchs.length > 0 && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => toggleVolumeExpand(volume.id)}
+                              className="text-slate-600"
+                            >
+                              {isExpanded ? (
+                                <>
+                                  <ChevronUp className="mr-1 h-4 w-4" />
+                                  收起
+                                </>
+                              ) : (
+                                <>
+                                  <ChevronDown className="mr-1 h-4 w-4" />
+                                  展开 ({volumeChapterArchs.length})
+                                </>
+                              )}
+                            </Button>
+                          )}
+                          {volumeChapterArchs.length > 0 && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
                               onClick={() => handleBatchGenerateContent(volume)}
                               disabled={batchGeneratingContent}
-                              className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                              {batchGeneratingContent ? '生成中...' : '批量生成正文'}
-                            </button>
-                          ) : null}
-                          <button type="button" onClick={() => startEdit(volume)} className="rounded-full border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+                              {batchGeneratingContent ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Sparkles className="h-4 w-4" />
+                              )}
+                              批量生成正文
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={async () => {
+                              if (volumeChapterArchs.length > 0) {
+                                const confirmed = await feedback.confirm({
+                                  title: `重新生成「${volume.title}」的章架构？`,
+                                  message: `该卷已有 ${volumeChapterArchs.length} 条章架构，重新生成将覆盖原有内容。`,
+                                  note: '建议先确认是否需要保留现有架构。',
+                                  confirmText: '确认重新生成',
+                                  cancelText: '取消',
+                                  variant: 'danger',
+                                });
+                                if (!confirmed) return;
+                              }
+                              setSelectedVolumeId(volume.id.toString());
+                              setShowChapterBatch(true);
+                              setGeneratedChapters([]);
+                            }}
+                          >
+                            <FileText className="h-4 w-4" />
+                            {volumeChapterArchs.length > 0 ? '重新批量生成章架构' : '批量生成章架构'}
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => startEdit(volume)}>
+                            <Pencil className="h-4 w-4" />
                             编辑
-                          </button>
-                          <button type="button" onClick={() => handleDelete(volume)} className="rounded-full border border-rose-200 px-3 py-1.5 text-sm text-rose-600 hover:bg-rose-50">
+                          </Button>
+                          <Button variant="destructive" size="sm" onClick={() => handleDelete(volume)}>
+                            <Trash2 className="h-4 w-4" />
                             删除
-                          </button>
+                          </Button>
                         </div>
                       </div>
-                      <p className="mt-4 text-sm leading-7 text-slate-600">{volume.plot_outline || '还没有卷情节概括。'}</p>
+                      <ExpandableText
+                        text={volume.plot_outline}
+                        maxLength={120}
+                        className="mt-4 text-sm leading-7 text-slate-600"
+                      />
+                      {!volume.plot_outline && (
+                        <p className="mt-4 text-sm leading-7 text-slate-600">还没有卷情节概括。</p>
+                      )}
 
+                      {/* Chapter Architectures within Volume */}
                       {volumeChapterArchs.length > 0 ? (
-                        <div className="mt-5 grid gap-3">
-                          {volumeChapterArchs.map((chapterArch, index) => {
-                            const existingChapter = getChapterByArchId(chapterArch.id);
-                            return (
-                              <div key={chapterArch.id} className="rounded-[22px] border border-slate-200 bg-slate-50/70 px-4 py-4">
-                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">第{index + 1}章</span>
-                                      <p className="text-sm font-semibold text-slate-900">{chapterArch.title}</p>
-                                      {existingChapter ? (
-                                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">已生成正文</span>
-                                      ) : null}
+                        isExpanded && (
+                          <div className="mt-5 grid gap-3">
+                            {volumeChapterArchs.map((chapterArch, index) => {
+                              const existingChapter = getChapterByArchId(chapterArch.id);
+                              return (
+                                <Card key={chapterArch.id} className="border-slate-200/60 bg-slate-50/50">
+                                  <CardContent className="p-4">
+                                    <div className="flex items-start gap-3">
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <Badge variant="outline" className="border-amber-200 text-amber-700 shrink-0">
+                                            第{index + 1}章
+                                          </Badge>
+                                          <p className="text-sm font-semibold text-slate-900">
+                                            {chapterArch.title}
+                                          </p>
+                                          {existingChapter && (
+                                            <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 shrink-0">
+                                              已生成正文
+                                            </Badge>
+                                          )}
+                                        </div>
+                                        <p className="mt-2 text-sm leading-6 text-slate-600 line-clamp-2">
+                                          {chapterArch.plot_outline || '还没有内容概括。'}
+                                        </p>
+                                      </div>
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        {existingChapter ? (
+                                          <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                                            <Link to={`/chapters/${existingChapter.id}`}>
+                                              <FileText className="h-4 w-4" />
+                                            </Link>
+                                          </Button>
+                                        ) : (
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8"
+                                            onClick={() => handleGenerateChapterContent(chapterArch)}
+                                            disabled={generatingContent === chapterArch.id}
+                                          >
+                                            {generatingContent === chapterArch.id ? (
+                                              <Loader2 className="h-4 w-4 animate-spin" />
+                                            ) : (
+                                              <Sparkles className="h-4 w-4" />
+                                            )}
+                                          </Button>
+                                        )}
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEdit(chapterArch)}>
+                                          <Pencil className="h-4 w-4" />
+                                        </Button>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(chapterArch)}>
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </div>
                                     </div>
-                                    <p className="mt-2 text-sm leading-6 text-slate-600">{chapterArch.plot_outline || '还没有内容概括。'}</p>
-                                  </div>
-                                  <div className="flex flex-wrap gap-2">
-                                    {existingChapter ? (
-                                      <Link
-                                        to={`/chapters/${existingChapter.id}`}
-                                        className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100"
-                                      >
-                                        查看正文
-                                      </Link>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleGenerateChapterContent(chapterArch)}
-                                        disabled={generatingContent === chapterArch.id}
-                                        className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                      >
-                                        {generatingContent === chapterArch.id ? '生成中...' : '生成正文'}
-                                      </button>
-                                    )}
-                                    <button type="button" onClick={() => startEdit(chapterArch)} className="rounded-full border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-white">
-                                      编辑
-                                    </button>
-                                    <button type="button" onClick={() => handleDelete(chapterArch)} className="rounded-full border border-rose-200 px-3 py-1.5 text-sm text-rose-600 hover:bg-white">
-                                      删除
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
+                                  </CardContent>
+                                </Card>
+                              );
+                            })}
+                          </div>
+                        )
                       ) : (
-                        <div className="mt-5 rounded-[22px] border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-500">
-                          这个卷还没有章架构，可以用右上角的“批量生成章架构”快速拆章。
+                        <div className="mt-5 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-5 text-sm text-slate-500">
+                          这个卷还没有章架构，可以用右上角的"批量生成章架构"快速拆章。
                         </div>
                       )}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
-        </SectionCard>
-      </div>
-
-      {(showCreate || editingId) ? (
-        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-[32px] border border-white/60 bg-white p-6 shadow-2xl">
-            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
-                  {editingId ? 'Edit Architecture' : 'Create Architecture'}
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-900">
-                  {editingId ? '编辑架构' : '创建架构'}
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-slate-500">
-                  {editingId ? '优先修正当前结构信息。' : '先确定层级和标题，再让 AI 帮你补大纲。'}
-                </p>
-              </div>
-              {!editingId ? (
-                <button
-                  type="button"
-                  onClick={handleGenerate}
-                  disabled={generating}
-                  className="rounded-full bg-slate-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {generating ? 'AI 生成中...' : '让 AI 补全内容'}
-                </button>
-              ) : null}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
-
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {!editingId ? (
-                <div className="grid gap-4 md:grid-cols-2">
-                  <label className="grid gap-2">
-                    <span className="text-sm font-medium text-slate-700">层级</span>
-                    <select
-                      value={formData.level}
-                      onChange={(event) => setFormData({ ...formData, level: event.target.value, parentId: null })}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
-                    >
-                      <option value="full">全本架构</option>
-                      <option value="volume">卷架构</option>
-                      <option value="chapter">章架构</option>
-                    </select>
-                  </label>
-                  {formData.level !== 'full' ? (
-                    <label className="grid gap-2">
-                      <span className="text-sm font-medium text-slate-700">父级架构</span>
-                      <select
-                        value={formData.parentId || ''}
-                        onChange={(event) => setFormData({ ...formData, parentId: event.target.value ? parseInt(event.target.value, 10) : null })}
-                        className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
-                      >
-                        <option value="">请选择</option>
-                        {formData.level === 'volume' && fullArch ? <option value={fullArch.id}>{fullArch.title}</option> : null}
-                        {formData.level === 'chapter'
-                          ? volumes.map((volume) => (
-                            <option key={volume.id} value={volume.id}>
-                              {volume.title}
-                            </option>
-                          ))
-                          : null}
-                      </select>
-                    </label>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <label className="grid gap-2">
-                <span className="text-sm font-medium text-slate-700">标题</span>
-                <input
-                  type="text"
-                  value={formData.title}
-                  onChange={(event) => setFormData({ ...formData, title: event.target.value })}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
-                  placeholder="先起一个工作标题，方便 AI 抓主轴"
-                  required
-                />
-              </label>
-
-              <label className="grid gap-2">
-                <span className="text-sm font-medium text-slate-700">情节大纲</span>
-                <textarea
-                  value={formData.plotOutline}
-                  onChange={(event) => setFormData({ ...formData, plotOutline: event.target.value })}
-                  rows={7}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
-                  placeholder="写清这层结构想解决的冲突、推进和结果。"
-                />
-              </label>
-
-              <div className="grid gap-4 xl:grid-cols-2">
-                <JsonField
-                  label="人物设定"
-                  value={formData.characters}
-                  onChange={(value) => setFormData({ ...formData, characters: value })}
-                  placeholder='{"主角": {"name": "林川", "goal": "..."}}'
-                  helper="如果不想手写完整 JSON，可以先让 AI 生成，再局部改动。"
-                />
-                <JsonField
-                  label="世界观设定"
-                  value={formData.worldSetting}
-                  onChange={(value) => setFormData({ ...formData, worldSetting: value })}
-                  placeholder='{"era": "近未来", "rules": "..."}'
-                  helper="保持结构化记录，后续回看和生成时更容易复用。"
-                />
-              </div>
-
-              <label className="grid gap-2 sm:max-w-md">
-                <span className="text-sm font-medium text-slate-700">情感基调</span>
-                <input
-                  type="text"
-                  value={formData.emotionalTone}
-                  onChange={(event) => setFormData({ ...formData, emotionalTone: event.target.value })}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
-                  placeholder="热血 / 温柔 / 压迫 / 悬疑"
-                />
-              </label>
-
-              <div className="flex flex-wrap justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={closeEditor}
-                  className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="rounded-full bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {saving ? '保存中...' : editingId ? '保存架构' : '创建架构'}
-                </button>
-              </div>
-            </form>
-          </div>
+          )}
         </div>
-      ) : null}
+      </SectionCard>
 
-      {showChapterBatch ? (
-        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-[32px] border border-white/60 bg-white p-6 shadow-2xl">
-            <div className="mb-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Batch Chapter Design</p>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-900">批量生成章架构</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-500">
-                先选卷，再生成一批可编辑的章概括。生成后建议快速扫一遍标题和承接关系。
-              </p>
+      {/* Create/Edit Dialog */}
+      <Dialog open={showCreate || !!editingId} onOpenChange={(open) => !open && closeEditor()}>
+        <DialogContent className="sm:max-w-4xl bg-white max-h-[90vh] overflow-hidden flex flex-col p-0">
+          <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
+            <DialogTitle>{editingId ? '编辑架构' : '创建架构'}</DialogTitle>
+            <DialogDescription>
+              {editingId ? '优先修正当前结构信息。' : '先确定层级和标题，再让 AI 帮你补大纲。'}
+            </DialogDescription>
+          </DialogHeader>
+          {!editingId && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleGenerate}
+              disabled={generating}
+              className="absolute right-14 top-6"
+            >
+              {generating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              让 AI 补全内容
+            </Button>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto px-6 pb-6">
+            {!editingId && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">层级</Label>
+                  <Select
+                    value={formData.level}
+                    onValueChange={(value) => setFormData({ ...formData, level: value, parentId: null })}
+                  >
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder="选择层级">
+                        {(value) => {
+                          if (value === 'full') return '全本架构';
+                          if (value === 'volume') return '卷架构';
+                          if (value === 'chapter') return '章架构';
+                          return null;
+                        }}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent position="popper" className="z-50">
+                      <SelectItem value="full">全本架构</SelectItem>
+                      <SelectItem value="volume">卷架构</SelectItem>
+                      <SelectItem value="chapter">章架构</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {formData.level !== 'full' && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">父级架构</Label>
+                    <Select
+                      value={formData.parentId?.toString() || ''}
+                      onValueChange={(value) => setFormData({ ...formData, parentId: value ? parseInt(value, 10) : null })}
+                    >
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue placeholder="请选择">
+                          {(value) => {
+                            if (!value) return null;
+                            if (formData.level === 'volume') return fullArch?.title ?? null;
+                            return volumes.find((v) => v.id === parseInt(value, 10))?.title ?? null;
+                          }}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent position="popper" className="z-50">
+                        {formData.level === 'volume' && fullArch && (
+                          <SelectItem value={fullArch.id.toString()}>{fullArch.title}</SelectItem>
+                        )}
+                        {formData.level === 'chapter' &&
+                          volumes.map((volume) => (
+                            <SelectItem key={volume.id} value={volume.id.toString()}>
+                              {volume.title}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">标题</Label>
+              <Input
+                value={formData.title}
+                onChange={(event) => setFormData({ ...formData, title: event.target.value })}
+                placeholder="先起一个工作标题，方便 AI 抓主轴"
+                className="h-8 text-sm"
+                required
+              />
             </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">情节大纲</Label>
+              <Textarea
+                value={formData.plotOutline}
+                onChange={(event) => setFormData({ ...formData, plotOutline: event.target.value })}
+                rows={4}
+                className="text-sm resize-none"
+                placeholder="写清这层结构想解决的冲突、推进和结果。"
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <JsonField
+                label="人物设定"
+                value={formData.characters}
+                onChange={(value) => setFormData({ ...formData, characters: value })}
+                placeholder='{"主角": {"name": "林川", "goal": "..."}}'
+                helper="如果不想手写完整 JSON，可以先让 AI 生成，再局部改动。"
+              />
+              <JsonField
+                label="世界观设定"
+                value={formData.worldSetting}
+                onChange={(value) => setFormData({ ...formData, worldSetting: value })}
+                placeholder='{"era": "近未来", "rules": "..."}'
+                helper="保持结构化记录，后续回看和生成时更容易复用。"
+              />
+            </div>
+
+            <div className="space-y-1.5 sm:max-w-xs">
+              <Label className="text-xs">情感基调</Label>
+              <Input
+                value={formData.emotionalTone}
+                onChange={(event) => setFormData({ ...formData, emotionalTone: event.target.value })}
+                className="h-8 text-sm"
+                placeholder="热血 / 温柔 / 压迫 / 悬疑"
+              />
+            </div>
+
+            <Separator className="my-2 shrink-0" />
+
+            <DialogFooter className="shrink-0">
+              <Button type="button" variant="outline" onClick={closeEditor}>
+                取消
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                {editingId ? '保存架构' : '创建架构'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch Chapter Generation Dialog */}
+      <Dialog
+        open={showChapterBatch}
+        onOpenChange={(open) => !open && closeBatchDialog()}
+      >
+        <DialogContent className="sm:max-w-5xl" showCloseButton={!batchGenerating}>
+          <DialogHeader>
+            <DialogTitle>批量生成章架构</DialogTitle>
+            <DialogDescription>
+              {selectedVolumeId
+                ? '将为选中的卷生成一批可编辑的章概括。生成后建议快速扫一遍标题和承接关系。'
+                : '先选卷，再生成一批可编辑的章概括。生成后建议快速扫一遍标题和承接关系。'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {!selectedVolumeId && (
             <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
-              <label className="grid gap-2">
-                <span className="text-sm font-medium text-slate-700">选择卷架构</span>
-                <select
-                  value={selectedVolumeId}
-                  onChange={(event) => setSelectedVolumeId(event.target.value)}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
-                >
-                  <option value="">请选择卷架构</option>
-                  {volumes.map((volume) => (
-                    <option key={volume.id} value={volume.id}>
-                      {volume.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
+              <div className="space-y-2">
+                <Label>选择卷架构</Label>
+                <Select value={selectedVolumeId} onValueChange={setSelectedVolumeId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="请选择卷架构">
+                      {(value) => volumes.find((v) => v.id.toString() === value)?.title ?? null}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {volumes.map((volume) => (
+                      <SelectItem key={volume.id} value={volume.id.toString()}>
+                        {volume.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
                 onClick={handleGenerateChapterBatch}
                 disabled={batchGenerating || !selectedVolumeId}
-                className="rounded-full bg-slate-500 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {batchGenerating ? 'AI 生成中...' : '生成章架构草稿'}
-              </button>
+                {batchGenerating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                生成章架构草稿
+              </Button>
             </div>
+          )}
 
-            {generatedChapters.length > 0 ? (
-              <div className="mt-6 space-y-3">
+          {selectedVolumeId && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">目标卷：</span>
+                <Badge variant="secondary">
+                  {volumes.find((v) => v.id.toString() === selectedVolumeId)?.title}
+                </Badge>
+              </div>
+              <Button
+                onClick={handleGenerateChapterBatch}
+                disabled={batchGenerating}
+              >
+                {batchGenerating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                生成章架构草稿
+              </Button>
+            </div>
+          )}
+
+          {generatedChapters.length > 0 && (
+            <ScrollArea className="mt-4 max-h-[400px]">
+              <div className="space-y-3 pr-4">
                 {generatedChapters.map((chapter, index) => (
-                  <div key={`${chapter.chapterNumber}-${index}`} className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4">
-                    <div className="grid gap-3 md:grid-cols-[auto_1fr] md:items-center">
-                      <div className="rounded-full bg-white px-3 py-2 text-sm font-semibold text-slate-600 shadow-sm">
-                        第 {chapter.chapterNumber} 章
+                  <Card key={`${chapter.chapterNumber}-${index}`} className="bg-slate-50/50">
+                    <CardContent className="p-4">
+                      <div className="grid gap-3 md:grid-cols-[auto_1fr] md:items-center">
+                        <Badge variant="secondary" className="justify-center">
+                          第 {chapter.chapterNumber} 章
+                        </Badge>
+                        <Input
+                          value={chapter.title}
+                          onChange={(event) => updateGeneratedChapter(index, 'title', event.target.value)}
+                          placeholder="章节标题"
+                        />
                       </div>
-                      <input
-                        type="text"
-                        value={chapter.title}
-                        onChange={(event) => updateGeneratedChapter(index, 'title', event.target.value)}
-                        className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
-                        placeholder="章节标题"
+                      <Textarea
+                        value={chapter.plotOutline}
+                        onChange={(event) => updateGeneratedChapter(index, 'plotOutline', event.target.value)}
+                        rows={3}
+                        className="mt-3"
+                        placeholder="章节概括"
                       />
-                    </div>
-                    <textarea
-                      value={chapter.plotOutline}
-                      onChange={(event) => updateGeneratedChapter(index, 'plotOutline', event.target.value)}
-                      rows={3}
-                      className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
-                      placeholder="章节概括"
-                    />
-                  </div>
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
-            ) : null}
+            </ScrollArea>
+          )}
 
-            <div className="mt-6 flex flex-wrap justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowChapterBatch(false);
-                  setGeneratedChapters([]);
-                }}
-                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                关闭
-              </button>
-              {generatedChapters.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={handleSaveChapterBatch}
-                  className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
-                >
-                  保存全部 {generatedChapters.length} 章
-                </button>
-              ) : null}
+          <Separator />
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={closeBatchDialog}
+              disabled={batchGenerating}
+            >
+              关闭
+            </Button>
+            {generatedChapters.length > 0 && (
+              <Button onClick={handleSaveChapterBatch}>
+                保存全部 {generatedChapters.length} 章
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Content Preview Dialog */}
+      <Dialog open={showContentPreview} onOpenChange={(open) => !open && closePreview()}>
+        <DialogContent className="sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>{previewTitle}</DialogTitle>
+            <DialogDescription>
+              这是 AI 生成的正文预览。确认风格和承接都没问题后，再保存成正式章节。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="space-y-2 sm:max-w-[10rem]">
+              <Label>保存为章节号</Label>
+              <Input
+                type="number"
+                min="1"
+                value={previewChapterNumber}
+                onChange={(event) => setPreviewChapterNumber(parseInt(event.target.value || '1', 10))}
+              />
             </div>
           </div>
-        </div>
-      ) : null}
 
-      {showContentPreview ? (
-        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-[32px] border border-white/60 bg-white p-6 shadow-2xl">
-            <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Chapter Preview</p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-900">{previewTitle}</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-500">
-                  这是 AI 生成的正文预览。确认风格和承接都没问题后，再保存成正式章节。
-                </p>
-              </div>
-              <label className="grid gap-2 sm:max-w-[10rem]">
-                <span className="text-sm font-medium text-slate-700">保存为章节号</span>
-                <input
-                  type="number"
-                  min="1"
-                  value={previewChapterNumber}
-                  onChange={(event) => setPreviewChapterNumber(parseInt(event.target.value || '1', 10))}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
-                />
-              </label>
-            </div>
-            <div className="rounded-[28px] border border-slate-200 bg-slate-50/70 p-5 text-sm leading-8 whitespace-pre-wrap text-slate-700">
+          <ScrollArea className="max-h-[400px] rounded-lg border bg-slate-50/50 p-4">
+            <div className="text-sm leading-8 whitespace-pre-wrap text-slate-700">
               {previewContent}
             </div>
-            <div className="mt-6 flex flex-wrap justify-end gap-3">
-              <button
-                type="button"
-                onClick={closePreview}
-                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                关闭预览
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveChapterContent}
-                disabled={savingPreview}
-                className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {savingPreview ? '保存中...' : '保存为正式章节'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+          </ScrollArea>
+
+          <Separator />
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closePreview}>
+              关闭预览
+            </Button>
+            <Button onClick={handleSaveChapterContent} disabled={savingPreview}>
+              {savingPreview && <Loader2 className="h-4 w-4 animate-spin" />}
+              保存为正式章节
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }

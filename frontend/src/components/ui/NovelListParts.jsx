@@ -1,113 +1,123 @@
 import { Link } from 'react-router-dom';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Trash2, ArrowRight, Clock, Tag } from 'lucide-react';
 
 export function NovelProjectCard({ novel, updatedLabel, onDelete }) {
   return (
-    <article className="group rounded-[32px] border border-[color:rgba(216,203,184,0.84)] bg-[linear-gradient(180deg,rgba(255,252,247,0.98),rgba(247,239,226,0.92))] p-5 shadow-[0_16px_40px_rgba(38,28,18,0.06)] transition duration-200 hover:-translate-y-1 hover:border-[color:rgba(139,101,55,0.28)] hover:shadow-[0_20px_48px_rgba(38,28,18,0.1)]">
-      <div className="flex items-start justify-between gap-3 border-b border-[color:rgba(216,203,184,0.5)] pb-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-[0.24em] text-[color:var(--ink-muted)]">
-            <span>Manuscript Sheet</span>
-            <span className="h-1 w-1 rounded-full bg-[color:rgba(139,101,55,0.38)]" />
-            <span>{updatedLabel}</span>
+    <Card className="group transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Clock className="h-3 w-3" />
+              <span>{updatedLabel}</span>
+            </div>
+            <CardTitle className="mt-2 text-lg line-clamp-1">{novel.title}</CardTitle>
           </div>
-          <h2 className="mt-3 text-[1.45rem] font-semibold tracking-[-0.03em] text-[color:var(--ink)]">{novel.title}</h2>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {novel.genre ? (
-              <span className="inline-flex rounded-full border border-[color:rgba(139,101,55,0.18)] bg-[color:rgba(139,101,55,0.08)] px-3 py-1 text-xs font-semibold text-[color:var(--accent)]">
-                {novel.genre}
-              </span>
-            ) : (
-              <span className="inline-flex rounded-full border border-dashed border-[color:rgba(216,203,184,0.9)] px-3 py-1 text-xs font-semibold text-[color:var(--ink-muted)]">
-                未设置题材
-              </span>
-            )}
-            <span className="text-xs text-[color:var(--ink-muted)]">可继续进入写作工作台</span>
-          </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onDelete(novel)}
+            className="text-muted-foreground hover:text-destructive shrink-0"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
         </div>
-        <button
-          type="button"
-          onClick={() => onDelete(novel)}
-          className="rounded-full border border-[color:rgba(169,77,68,0.22)] px-3 py-1.5 text-xs font-medium text-[color:var(--danger)] transition hover:bg-[color:rgba(169,77,68,0.08)]"
-        >
-          删除
-        </button>
-      </div>
-      <p className="mt-5 line-clamp-4 text-sm leading-7 text-[color:var(--ink-muted)]">
-        {novel.description || '还没有简介。补充简介会帮助后续 AI 更快进入写作上下文。'}
-      </p>
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-[color:rgba(216,203,184,0.5)] pt-4 text-sm text-[color:var(--ink-muted)]">
-        <span>最后整理于 {updatedLabel}</span>
-        <Link
-          to={`/novels/${novel.id}`}
-          className="rounded-full bg-slate-500 px-3.5 py-2 font-medium text-white shadow-[0_10px_22px_rgba(38,28,18,0.14)] transition hover:translate-y-[-1px] hover:bg-[color:var(--accent)]"
-        >
-          进入工作台
-        </Link>
-      </div>
-    </article>
+        <div className="mt-2">
+          {novel.genre ? (
+            <Badge variant="secondary" className="gap-1">
+              <Tag className="h-3 w-3" />
+              {novel.genre}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-muted-foreground">
+              未设置题材
+            </Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="flex-1 pb-2">
+        <CardDescription className="line-clamp-3 min-h-[3.5em]">
+          {novel.description || '还没有简介。补充简介会帮助后续 AI 更快进入写作上下文。'}
+        </CardDescription>
+      </CardContent>
+      <CardFooter className="pt-2 border-t">
+        <Button asChild className="w-full group/btn">
+          <Link to={`/novels/${novel.id}`} className="flex items-center justify-center">
+            进入工作台
+            <ArrowRight className="ml-1.5 h-4 w-4 transition-transform group-hover/btn:translate-x-0.5" />
+          </Link>
+        </Button>
+      </CardFooter>
+    </Card>
   );
 }
 
 export function CreateNovelModal({ creating, newNovel, onCancel, onChange, onSubmit }) {
   return (
-    <div className="fixed inset-0 z-[75] flex items-center justify-center bg-[color:rgba(15,23,42,0.5)] p-4 backdrop-blur-md">
-      <div className="w-full max-w-xl rounded-[34px] border border-[color:rgba(255,255,255,0.72)] bg-[linear-gradient(180deg,rgba(255,252,247,0.98),rgba(247,239,226,0.96))] p-6 shadow-[0_34px_90px_rgba(15,23,42,0.24)]">
-        <div className="mb-6">
-          <p className="text-[0.72rem] font-semibold uppercase tracking-[0.34em] text-[color:var(--ink-muted)]">Create Project</p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[color:var(--ink)]">创建新小说</h2>
-          <p className="mt-2 text-sm leading-7 text-[color:var(--ink-muted)]">
-            先给项目一个标题和一句简介，后面可以继续补全世界观和章节结构。我们会把它整理成独立的手稿条目。
-          </p>
-        </div>
-        <form onSubmit={onSubmit} className="space-y-4">
-          <label className="grid gap-2">
-            <span className="text-sm font-medium text-[color:var(--ink)]">标题</span>
-            <input
-              type="text"
-              value={newNovel.title}
-              onChange={(event) => onChange({ ...newNovel, title: event.target.value })}
-              className="rounded-2xl border border-[color:rgba(216,203,184,0.88)] bg-white px-4 py-3 outline-none transition focus:border-[color:rgba(139,101,55,0.42)]"
-              required
-            />
-          </label>
-          <label className="grid gap-2">
-            <span className="text-sm font-medium text-[color:var(--ink)]">简介</span>
-            <textarea
-              value={newNovel.description}
-              onChange={(event) => onChange({ ...newNovel, description: event.target.value })}
-              rows={4}
-              className="rounded-2xl border border-[color:rgba(216,203,184,0.88)] bg-white px-4 py-3 outline-none transition focus:border-[color:rgba(139,101,55,0.42)]"
-              placeholder="一句话说明这部小说在讲什么。"
-            />
-          </label>
-          <label className="grid gap-2">
-            <span className="text-sm font-medium text-[color:var(--ink)]">题材</span>
-            <input
-              type="text"
-              value={newNovel.genre}
-              onChange={(event) => onChange({ ...newNovel, genre: event.target.value })}
-              className="rounded-2xl border border-[color:rgba(216,203,184,0.88)] bg-white px-4 py-3 outline-none transition focus:border-[color:rgba(139,101,55,0.42)]"
-              placeholder="玄幻 / 科幻 / 悬疑..."
-            />
-          </label>
-          <div className="mt-2 flex flex-wrap justify-end gap-3">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="rounded-full border border-[color:rgba(216,203,184,0.9)] px-4 py-2 text-sm font-medium text-[color:var(--ink-muted)] transition hover:bg-[color:rgba(255,255,255,0.7)] hover:text-[color:var(--ink)]"
-            >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <Card className="w-full max-w-xl shadow-xl">
+        <CardHeader>
+          <CardTitle>创建新项目</CardTitle>
+          <CardDescription>
+            给项目一个标题和简介，后续可以继续补全世界观和章节结构。
+          </CardDescription>
+        </CardHeader>
+        <form onSubmit={onSubmit}>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="title" className="text-sm font-medium">
+                标题
+              </label>
+              <input
+                id="title"
+                type="text"
+                value={newNovel.title}
+                onChange={(event) => onChange({ ...newNovel, title: event.target.value })}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                placeholder="输入小说标题"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="description" className="text-sm font-medium">
+                简介
+              </label>
+              <textarea
+                id="description"
+                value={newNovel.description}
+                onChange={(event) => onChange({ ...newNovel, description: event.target.value })}
+                rows={4}
+                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                placeholder="一句话说明这部小说在讲什么"
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="genre" className="text-sm font-medium">
+                题材
+              </label>
+              <input
+                id="genre"
+                type="text"
+                value={newNovel.genre}
+                onChange={(event) => onChange({ ...newNovel, genre: event.target.value })}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                placeholder="玄幻 / 科幻 / 悬疑..."
+              />
+            </div>
+          </CardContent>
+          <CardFooter className="flex justify-end gap-2 border-t pt-4">
+            <Button type="button" variant="outline" onClick={onCancel}>
               取消
-            </button>
-            <button
-              type="submit"
-              disabled={creating}
-              className="rounded-full bg-slate-500 px-4 py-2 text-sm font-medium text-white shadow-[0_12px_24px_rgba(38,28,18,0.14)] transition hover:bg-[color:var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
-            >
+            </Button>
+            <Button type="submit" disabled={creating}>
               {creating ? '创建中...' : '创建项目'}
-            </button>
-          </div>
+            </Button>
+          </CardFooter>
         </form>
-      </div>
+      </Card>
     </div>
   );
 }

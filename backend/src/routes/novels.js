@@ -127,6 +127,13 @@ router.get('/:id/architectures', (req, res) => {
 });
 
 router.post('/:id/generate-architecture', async (req, res) => {
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      console.log('[abort] 客户端断开 → generate-architecture 已中止');
+      ac.abort();
+    }
+  });
   try {
     const { level, parentId, title } = req.body;
     const result = await architectureAiService.generateArchitecture({
@@ -134,14 +141,23 @@ router.post('/:id/generate-architecture', async (req, res) => {
       level,
       parentId,
       title
-    });
+    }, ac.signal);
     res.json(result);
   } catch (error) {
+    if (ac.signal.aborted) return;
     res.status(500).json({ error: error.message });
   }
 });
 
 router.post('/:id/generate-chapter-architectures', async (req, res) => {
+  console.log(`[route] POST generate-chapter-architectures novelId=${req.params.id} volumeId=${req.body?.volumeId}`);
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      console.log('[abort] 客户端断开 → generate-chapter-architectures 已中止');
+      ac.abort();
+    }
+  });
   try {
     const { volumeId } = req.body;
     if (!volumeId) {
@@ -150,9 +166,12 @@ router.post('/:id/generate-chapter-architectures', async (req, res) => {
     const chapters = await architectureAiService.generateChapterArchitectures({
       novelId: req.params.id,
       volumeId
-    });
+    }, ac.signal);
+    console.log(`[route] generate-chapter-architectures 完成，返回 ${chapters.length} 条`);
     res.json(chapters);
   } catch (error) {
+    if (ac.signal.aborted) return;
+    console.error('[route] generate-chapter-architectures 异常:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -182,6 +201,13 @@ router.post('/:id/batch-create-chapter-architectures', (req, res) => {
 });
 
 router.post('/:id/generate-chapter-content', async (req, res) => {
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      console.log('[abort] 客户端断开 → generate-chapter-content 已中止');
+      ac.abort();
+    }
+  });
   try {
     const { chapterArchId } = req.body;
     if (!chapterArchId) {
@@ -190,14 +216,22 @@ router.post('/:id/generate-chapter-content', async (req, res) => {
     const content = await aiService.generateChapterFromArchitecture({
       novelId: req.params.id,
       chapterArchId
-    });
+    }, ac.signal);
     res.json({ content });
   } catch (error) {
+    if (ac.signal.aborted) return;
     res.status(500).json({ error: error.message });
   }
 });
 
 router.post('/:id/batch-generate-chapters', async (req, res) => {
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      console.log('[abort] 客户端断开 → batch-generate-chapters 已中止');
+      ac.abort();
+    }
+  });
   try {
     const { volumeId } = req.body;
     if (!volumeId) {
@@ -211,11 +245,12 @@ router.post('/:id/batch-generate-chapters', async (req, res) => {
 
     const results = [];
     for (const arch of chapterArchs) {
+      if (ac.signal.aborted) break;
       try {
         const content = await aiService.generateChapterFromArchitecture({
           novelId: req.params.id,
           chapterArchId: arch.id
-        });
+        }, ac.signal);
 
         const chapter = chapterService.create({
           novelId: parseInt(req.params.id),
@@ -227,11 +262,14 @@ router.post('/:id/batch-generate-chapters', async (req, res) => {
         });
         results.push({ success: true, chapter, archId: arch.id });
       } catch (error) {
+        if (ac.signal.aborted) break;
         results.push({ success: false, archId: arch.id, error: error.message });
       }
     }
+    if (ac.signal.aborted) return;
     res.json(results);
   } catch (error) {
+    if (ac.signal.aborted) return;
     res.status(500).json({ error: error.message });
   }
 });

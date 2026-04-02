@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom';
 import { architectureApi, chapterApi } from '../services/api';
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
+import { Button } from '@/components/ui/button';
+import { ArrowLeft, Plus } from 'lucide-react';
 
 function ChapterManager() {
   const { id } = useParams();
@@ -110,21 +112,19 @@ function ChapterManager() {
       title="章节列表"
       description="这里适合集中查看所有章节状态；如果你已经有章架构，优先从架构页进入正文生产会更顺。"
       actions={
-        <>
-          <Link
-            to={`/novels/${id}`}
-            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-white"
-          >
-            返回小说工作台
-          </Link>
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="rounded-full bg-slate-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-600"
-          >
-            手动创建章节
-          </button>
-        </>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="ghost" size="sm" asChild>
+            <Link to={`/novels/${id}`} className="flex items-center justify-center">
+              <ArrowLeft className="mr-1.5 h-4 w-4" />
+              返回
+            </Link>
+          </Button>
+          <div className="h-4 w-px bg-border" />
+          <Button size="sm" onClick={() => setShowCreate(true)}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            新建章节
+          </Button>
+        </div>
       }
     >
       <StatGrid items={stats} />

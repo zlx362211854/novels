@@ -47,11 +47,19 @@ router.delete('/:id', (req, res) => {
 });
 
 router.post('/:id/generate', async (req, res) => {
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      console.log('[abort] 客户端断开 → chapter/generate 已中止');
+      ac.abort();
+    }
+  });
   try {
     const { templateId } = req.body;
-    const result = await chapterService.generate(req.params.id, templateId);
+    const result = await chapterService.generate(req.params.id, templateId, ac.signal);
     res.json(result);
   } catch (error) {
+    if (ac.signal.aborted) return;
     res.status(500).json({ error: error.message });
   }
 });
@@ -59,6 +67,13 @@ router.post('/:id/generate', async (req, res) => {
 router.post('/:id/regenerate', async (req, res) => {
   console.log('=== regenerate 路由被调用 ===');
   console.log('章节ID:', req.params.id);
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      console.log('[abort] 客户端断开 → chapter/regenerate 已中止');
+      ac.abort();
+    }
+  });
   try {
     const chapter = chapterService.findById(req.params.id);
     if (!chapter) {
@@ -79,7 +94,7 @@ router.post('/:id/regenerate', async (req, res) => {
     const content = await aiService.generateChapterFromArchitecture({
       novelId: chapter.novel_id,
       chapterArchId: chapter.architecture_id
-    });
+    }, ac.signal);
     console.log('AI生成完成，内容长度:', content?.length);
 
     const updatedChapter = chapterService.update(req.params.id, {
@@ -89,6 +104,7 @@ router.post('/:id/regenerate', async (req, res) => {
 
     res.json(updatedChapter);
   } catch (error) {
+    if (ac.signal.aborted) return;
     res.status(500).json({ error: error.message });
   }
 });

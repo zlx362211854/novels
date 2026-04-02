@@ -1,4 +1,9 @@
 import { useMemo, useState } from 'react';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
+import { CheckCircle, AlertCircle, Expand, Shrink } from 'lucide-react';
 
 function parseJson(value) {
   if (!value?.trim()) {
@@ -34,50 +39,76 @@ export default function JsonField({
   };
 
   return (
-    <div className="rounded-[26px] border border-[color:var(--border)] bg-[color:rgba(255,250,243,0.95)] p-4 shadow-[0_12px_28px_rgba(38,28,18,0.04)]">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
         <div>
-          <label className="block text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-[color:var(--ink-muted)]">
-            {label}
-          </label>
-          {helper ? <p className="mt-1 text-xs leading-6 text-[color:var(--ink-muted)]">{helper}</p> : null}
+          <Label className="text-xs uppercase tracking-wider">{label}</Label>
+          {helper && <p className="mt-0.5 text-xs text-muted-foreground">{helper}</p>}
         </div>
-        <div className="flex gap-2">
-          <button
+        <div className="flex gap-1.5">
+          <Button
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={() => setExpanded((current) => !current)}
-            className="rounded-full border border-[color:var(--border)] bg-[rgba(255,255,255,0.6)] px-3 py-1.5 text-xs font-medium text-[color:var(--ink-muted)] transition hover:border-[color:rgba(139,101,55,0.35)] hover:bg-white"
+            className="h-7 px-2 text-xs"
           >
-            {expanded ? '收起' : '展开'}
-          </button>
-          <button
+            {expanded ? (
+              <>
+                <Shrink className="mr-1 h-3 w-3" />
+                收起
+              </>
+            ) : (
+              <>
+                <Expand className="mr-1 h-3 w-3" />
+                展开
+              </>
+            )}
+          </Button>
+          <Button
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={handleFormat}
             disabled={!state.ok || !value?.trim()}
-            className="rounded-full border border-[color:var(--border)] bg-[rgba(255,255,255,0.72)] px-3 py-1.5 text-xs font-medium text-[color:var(--ink-muted)] transition hover:border-[color:rgba(139,101,55,0.35)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
+            className="h-7 px-2 text-xs"
           >
             格式化
-          </button>
+          </Button>
         </div>
       </div>
-      <textarea
+      <Textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
         rows={expanded ? rows + 5 : rows}
-        className={`mt-4 w-full rounded-[22px] border bg-[rgba(255,255,255,0.72)] px-4 py-3 font-mono text-sm leading-6 text-[color:var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none transition ${
-          state.ok
-            ? 'border-[color:var(--border)] focus:border-[color:rgba(139,101,55,0.52)] focus:ring-4 focus:ring-[rgba(139,101,55,0.08)]'
-            : 'border-[color:rgba(169,77,68,0.4)] focus:border-[color:rgba(169,77,68,0.55)] focus:ring-4 focus:ring-[rgba(169,77,68,0.08)]'
-        }`}
+        className={cn(
+          'font-mono text-sm',
+          !state.ok && 'border-destructive focus-visible:ring-destructive'
+        )}
         placeholder={placeholder}
       />
-      <div className="mt-3 flex items-center justify-between gap-3">
-        <p className={`text-xs ${state.ok ? 'text-[color:var(--success)]' : 'text-[color:var(--danger)]'}`}>
-          {state.ok ? 'JSON 格式有效' : `JSON 格式错误：${state.message}`}
+      <div className="flex items-center justify-between gap-3">
+        <p
+          className={cn(
+            'flex items-center gap-1 text-xs',
+            state.ok ? 'text-emerald-600' : 'text-destructive'
+          )}
+        >
+          {state.ok ? (
+            <>
+              <CheckCircle className="h-3 w-3" />
+              JSON 格式有效
+            </>
+          ) : (
+            <>
+              <AlertCircle className="h-3 w-3" />
+              JSON 格式错误：{state.message}
+            </>
+          )}
         </p>
-        {value?.trim() ? (
-          <p className="text-xs text-[color:var(--ink-muted)]">{value.length} 个字符</p>
-        ) : null}
+        {value?.trim() && (
+          <p className="text-xs text-muted-foreground">{value.length} 个字符</p>
+        )}
       </div>
     </div>
   );

@@ -3,6 +3,9 @@ import { novelApi } from '../services/api';
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
 import { CreateNovelModal, NovelProjectCard } from '../components/ui/NovelListParts';
+import { Button } from '../components/ui/button';
+import { Skeleton } from '../components/ui/skeleton';
+import { Plus, BookOpen, FolderOpen, Calendar } from 'lucide-react';
 
 const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
   month: 'short',
@@ -50,7 +53,7 @@ function NovelList() {
     const genres = new Set(sortedNovels.map((novel) => novel.genre).filter(Boolean));
     const latestNovel = sortedNovels[0];
     return [
-      { label: '项目总数', value: sortedNovels.length, caption: sortedNovels.length ? '所有进行中的小说项目' : '还没有创建项目' },
+      { label: '项目总数', value: sortedNovels.length, caption: sortedNovels.length ? '所有进行中的项目' : '还没有创建项目' },
       { label: '已分类题材', value: genres.size, caption: '当前已使用的题材数量' },
       {
         label: '最近更新',
@@ -106,52 +109,52 @@ function NovelList() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center text-[color:var(--ink-muted)]">
-        正在整理小说索引...
-      </div>
+      <PageShell eyebrow="Project Index" title="我的项目" description="加载中...">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="space-y-3 rounded-lg border p-4">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-6 w-3/4" />
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+          ))}
+        </div>
+      </PageShell>
     );
   }
 
   return (
     <PageShell
       eyebrow="Project Index"
-      title="我的小说项目"
+      title="我的项目"
       description="把创作项目当成一页页可翻阅的工作文档。进入项目后，可以继续拆架构、写章节、回看版本。"
       actions={
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="text-sm text-[color:var(--ink-muted)]">新的项目会自动进入索引页，方便随时回到写作现场。</p>
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="rounded-full bg-slate-500 px-4 py-2 text-sm font-medium text-white shadow-[0_12px_24px_rgba(38,28,18,0.14)] transition hover:translate-y-[-1px] hover:bg-[color:var(--accent)]"
-          >
-            创建新项目
-          </button>
-        </div>
+        <Button onClick={() => setShowCreate(true)}>
+          <Plus className="mr-1.5 h-4 w-4" />
+          创建新项目
+        </Button>
       }
     >
       <StatGrid items={stats} />
 
-      <SectionCard title="项目列表" description="最近更新的项目排在前面，方便回到正在推进的作品。">
+      <SectionCard
+        title="项目列表"
+        description="最近更新的项目排在前面，方便回到正在推进的作品。"
+      >
         {sortedNovels.length === 0 ? (
-          <div className="rounded-[32px] border border-dashed border-[color:rgba(216,203,184,0.92)] bg-[linear-gradient(180deg,rgba(255,252,247,0.92),rgba(247,239,226,0.86))] px-6 py-12 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
-            <p className="text-[0.72rem] font-semibold uppercase tracking-[0.34em] text-[color:var(--ink-muted)]">Empty Index</p>
-            <p className="mt-3 text-xl font-semibold tracking-[-0.03em] text-[color:var(--ink)]">还没有创建任何小说</p>
-            <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-[color:var(--ink-muted)]">
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="rounded-full bg-muted p-4">
+              <BookOpen className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <h3 className="mt-4 text-lg font-semibold">还没有创建任何小说</h3>
+            <p className="mt-2 max-w-md text-sm text-muted-foreground">
               先建立一个项目，再逐步补上简介、题材和章节结构。索引会把每个作品都整理成一张可继续推进的手稿卡片。
             </p>
-            <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => setShowCreate(true)}
-                className="rounded-full bg-slate-500 px-4 py-2 text-sm font-medium text-white shadow-[0_12px_24px_rgba(38,28,18,0.14)] transition hover:bg-[color:var(--accent)]"
-              >
-                创建第一个项目
-              </button>
-              <span className="rounded-full border border-[color:rgba(216,203,184,0.92)] bg-white/60 px-4 py-2 text-sm text-[color:var(--ink-muted)]">
-                创建后可直接进入工作台继续写作
-              </span>
-            </div>
+            <Button onClick={() => setShowCreate(true)} className="mt-6">
+              <Plus className="mr-1.5 h-4 w-4" />
+              创建第一个项目
+            </Button>
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -167,7 +170,7 @@ function NovelList() {
         )}
       </SectionCard>
 
-      {showCreate ? (
+      {showCreate && (
         <CreateNovelModal
           creating={creating}
           newNovel={newNovel}
@@ -175,7 +178,7 @@ function NovelList() {
           onChange={setNewNovel}
           onSubmit={handleCreate}
         />
-      ) : null}
+      )}
     </PageShell>
   );
 }

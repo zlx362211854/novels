@@ -82,7 +82,7 @@ function restoreVersion(chapterId, versionNumber) {
   return update(chapterId, { content: version.content });
 }
 
-async function generate(chapterId, templateId) {
+async function generate(chapterId, templateId, signal) {
   const chapter = findById(chapterId);
   if (!chapter) throw new Error('章节不存在');
 
@@ -97,7 +97,7 @@ async function generate(chapterId, templateId) {
     chapter,
     architecture,
     templateId
-  });
+  }, signal);
 
   const updatedChapter = update(chapterId, {
     content: generatedContent,
@@ -108,7 +108,7 @@ async function generate(chapterId, templateId) {
     chapter: updatedChapter,
     novel,
     architecture
-  });
+  }, signal);
 
   return {
     chapter: updatedChapter,

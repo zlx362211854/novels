@@ -3,6 +3,31 @@ import { Link, useParams } from 'react-router-dom';
 import { architectureApi, chapterApi, exportApi, novelApi } from '../services/api';
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import { Textarea } from '../components/ui/textarea';
+import { Badge } from '../components/ui/badge';
+import { Progress } from '../components/ui/progress';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
+import {
+  ArrowLeft,
+  Pencil,
+  Download,
+  FolderOpen,
+  Loader2,
+  BookOpen,
+  Layers,
+  FileText,
+  CheckCircle,
+} from 'lucide-react';
 
 function NovelDetail() {
   const { id } = useParams();
@@ -80,10 +105,10 @@ function NovelDetail() {
       a.download = `${novel.title}.md`;
       a.click();
       URL.revokeObjectURL(url);
-      feedback.success(scope === 'full' ? '已开始导出整本 Markdown。' : '已开始导出当前内容。');
+      feedback.success('已导出 Markdown 文件。');
     } catch (error) {
       console.error('导出失败:', error);
-      feedback.error('导出失败，可能是导出接口尚未可用。');
+      feedback.error('导出失败，请稍后再试。');
     } finally {
       setExporting(false);
     }
@@ -95,6 +120,7 @@ function NovelDetail() {
     const chapterArch = architectures.filter((item) => item.level === 'chapter').length;
     const generated = chapters.filter((item) => item.status === 'generated').length;
     const draft = chapters.filter((item) => item.status === 'draft').length;
+    const totalChapters = chapterArch || chapters.length;
 
     return {
       full,
@@ -102,189 +128,186 @@ function NovelDetail() {
       chapterArch,
       generated,
       draft,
-      progress: chapters.length ? Math.round((generated / chapters.length) * 100) : 0,
+      totalChapters,
+      progress: totalChapters ? Math.round((generated / totalChapters) * 100) : 0,
     };
   }, [architectures, chapters]);
 
   if (loading) {
-    return <div className="flex min-h-[50vh] items-center justify-center text-slate-500">正在加载工作台...</div>;
+    return (
+      <PageShell eyebrow="Novel Workspace" title="加载中..." description="">
+        <div className="flex min-h-[30vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </PageShell>
+    );
   }
 
   if (!novel) {
-    return <div className="py-20 text-center text-slate-500">小说不存在</div>;
+    return (
+      <PageShell eyebrow="Novel Workspace" title="小说不存在" description="">
+        <div className="flex min-h-[30vh] items-center justify-center">
+          <p className="text-muted-foreground">找不到这部小说</p>
+        </div>
+      </PageShell>
+    );
   }
 
   return (
     <PageShell
       eyebrow="Novel Workspace"
       title={novel.title}
-      description={novel.description || '先搭骨架，再生成章节，再统一回看节奏和完整度。这里把项目进度集中展示，减少来回跳转。'}
+      description={novel.description || '先搭骨架，再生成章节，再统一回看节奏和完整度。'}
       actions={
-        <>
-          <Link
-            to="/"
-            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-white"
-          >
-            返回列表
-          </Link>
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-white"
-          >
-            编辑信息
-          </button>
-          <button
-            type="button"
-            onClick={() => handleExport('full')}
-            disabled={exporting}
-            className="rounded-full bg-slate-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {exporting ? '导出中...' : '导出 Markdown'}
-          </button>
-          <Link
-            to={`/novels/${id}/architecture`}
-            className="rounded-full bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700"
-          >
-            打开完整架构页
-          </Link>
-        </>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/" className="flex items-center justify-center">
+              <ArrowLeft className="mr-1.5 h-4 w-4" />
+              返回
+            </Link>
+          </Button>
+          <div className="h-4 w-px bg-border" />
+          <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+            <Pencil className="mr-1.5 h-4 w-4" />
+            编辑
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleExport('full')} disabled={exporting}>
+            {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
+            导出
+          </Button>
+          <Button size="sm" asChild>
+            <Link to={`/novels/${id}/architecture`} className="flex items-center justify-center">
+              <FolderOpen className="mr-1.5 h-4 w-4" />
+              架构工作台
+            </Link>
+          </Button>
+        </div>
       }
     >
-      {editing ? (
-        <SectionCard title="编辑小说信息" description="基础信息会同步影响后续架构与导出内容。">
-          <form onSubmit={handleUpdate} className="grid gap-4">
-            <label className="grid gap-2">
-              <span className="text-sm font-medium text-slate-700">标题</span>
-              <input
-                type="text"
-                value={editForm.title}
-                onChange={(event) => setEditForm({ ...editForm, title: event.target.value })}
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
-                required
-              />
-            </label>
-            <label className="grid gap-2">
-              <span className="text-sm font-medium text-slate-700">简介</span>
-              <textarea
-                value={editForm.description}
-                onChange={(event) => setEditForm({ ...editForm, description: event.target.value })}
-                rows={4}
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
-                placeholder="用几句话概括这部小说正在写什么。"
-              />
-            </label>
-            <label className="grid gap-2 sm:max-w-xs">
-              <span className="text-sm font-medium text-slate-700">类型</span>
-              <input
-                type="text"
-                value={editForm.genre}
-                onChange={(event) => setEditForm({ ...editForm, genre: event.target.value })}
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
-                placeholder="玄幻 / 科幻 / 都市..."
-              />
-            </label>
-            <div className="flex flex-wrap justify-end gap-3">
-              <button
-                type="button"
-                onClick={handleCancelEdit}
-                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                取消
-              </button>
-              <button
-                type="submit"
-                disabled={saving}
-                className="rounded-full bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saving ? '保存中...' : '保存修改'}
-              </button>
-            </div>
-          </form>
-        </SectionCard>
-      ) : null}
-
+      {/* Progress Section */}
       <SectionCard tone="accent">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">当前进度</p>
-            <div className="mt-3 flex items-end gap-3">
-              <span className="text-5xl font-semibold text-slate-900">{summary.progress}%</span>
-              <p className="pb-2 text-sm text-slate-500">
-                已完成 {summary.generated} / {chapters.length || 0} 章正文
-              </p>
+            <p className="text-sm font-medium text-muted-foreground">当前进度</p>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className="text-4xl font-bold">{summary.progress}%</span>
+              <span className="text-sm text-muted-foreground">
+                已完成 {summary.generated} / {summary.totalChapters} 章
+              </span>
             </div>
           </div>
-          <div className="w-full max-w-md">
-            <div className="h-3 rounded-full bg-white/80">
-              <div
-                className="h-3 rounded-full bg-slate-500 transition-all"
-                style={{ width: `${summary.progress}%` }}
-              />
-            </div>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              如果先把“全本 {'->'} 卷 {'->'} 章”三层架构补齐，再进入正文生成，后面的 AI 质量会更稳定。
-            </p>
+          <div className="w-full sm:w-64">
+            <Progress value={summary.progress} className="h-2" />
           </div>
         </div>
       </SectionCard>
+
       <StatGrid
         items={[
-          { label: '全本架构', value: summary.full, caption: summary.full ? '小说总纲已建立' : '建议先补全总纲' },
-          { label: '卷架构', value: summary.volume, caption: '管理中篇节奏和篇章分区' },
-          { label: '章架构', value: summary.chapterArch, caption: '越完整，越利于批量生产' },
-          { label: '已生成章节', value: summary.generated, caption: `${summary.draft} 章仍处于草稿` },
+          { label: '全本架构', value: summary.full, caption: summary.full ? '总纲已建立' : '建议先补全总纲' },
+          { label: '卷架构', value: summary.volume, caption: '管理篇章节奏' },
+          { label: '章架构', value: summary.chapterArch, caption: '用于批量生产' },
+          { label: '已生成章节', value: summary.generated, caption: `${summary.draft} 章草稿` },
         ]}
       />
+
       <SectionCard
         title="继续创作"
-        description="小说详情页现在只做轻量概览。真正的结构调整、拆章和正文生成都从完整架构页进入。"
+        description="小说详情页只做轻量概览，真正的结构调整在架构工作台完成。"
         actions={
-          <Link
-            to={`/novels/${id}/architecture`}
-            className="rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700"
-          >
-            继续创作
-          </Link>
+          <Button asChild>
+            <Link to={`/novels/${id}/architecture`}>进入架构工作台</Link>
+          </Button>
         }
       >
-        <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">推荐路径</p>
-            <div className="mt-4 space-y-3 text-sm leading-7 text-slate-600">
+        <div className="grid gap-4 lg:grid-cols-2">
+          {/* Recommended Path */}
+          <div className="rounded-lg border bg-muted/30 p-4">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">推荐路径</p>
+            <div className="mt-3 space-y-2 text-sm text-muted-foreground">
               <p>
                 {summary.full
-                  ? '总纲已经有了，下一步建议直接进入完整架构页，检查卷与章的承接，再决定是否生成正文。'
-                  : '当前还没有全本架构，建议先进入完整架构页把总纲搭起来，再继续后面的章节生产。'}
+                  ? '总纲已经有了，下一步建议进入架构工作台，检查卷与章的承接，再决定是否生成正文。'
+                  : '当前还没有全本架构，建议先进入架构工作台把总纲搭起来。'}
               </p>
-              <p>
-                现在所有高频动作都集中在完整架构页里：补结构、拆章、单章试产、批量出稿。
-              </p>
+              <p>所有高频动作都在架构工作台：补结构、拆章、单章试产、批量出稿。</p>
             </div>
           </div>
-          <div className="rounded-[24px] border border-slate-200 bg-white p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">项目信息</p>
-            <div className="mt-4 space-y-4 text-sm leading-7 text-slate-600">
-              <div>
-                <p className="text-slate-400">类型</p>
-                <p className="text-base text-slate-800">{novel.genre || '未设置'}</p>
+
+          {/* Project Info */}
+          <div className="rounded-lg border p-4">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">项目信息</p>
+            <div className="mt-3 space-y-3 text-sm">
+              <div className="flex items-center gap-2">
+                <Badge variant={novel.genre ? 'secondary' : 'outline'}>
+                  {novel.genre || '未设置类型'}
+                </Badge>
               </div>
               <div>
-                <p className="text-slate-400">简介</p>
-                <p>{novel.description || '还没有填写简介。补上简介后，AI 更容易抓到故事核心。'}</p>
+                <p className="text-muted-foreground">简介</p>
+                <p className="mt-1">{novel.description || '还没有填写简介。'}</p>
               </div>
-              <div>
-                <p className="text-slate-400">当前状态</p>
-                <p className="text-slate-800">
-                  {chapters.length
-                    ? `已完成 ${summary.generated} / ${chapters.length} 章正文`
-                    : '还没有章节，建议先从完整架构页开始'}
-                </p>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <CheckCircle className="h-4 w-4 text-emerald-500" />
+                <span>
+                  {summary.totalChapters
+                    ? `已完成 ${summary.generated} / ${summary.totalChapters} 章正文`
+                    : '还没有章节，建议先从架构工作台开始'}
+                </span>
               </div>
             </div>
           </div>
         </div>
       </SectionCard>
+
+      {/* Edit Dialog */}
+      <Dialog open={editing} onOpenChange={(open) => !open && handleCancelEdit()}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>编辑小说信息</DialogTitle>
+            <DialogDescription>基础信息会同步影响后续架构与导出内容。</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleUpdate} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-title">标题</Label>
+              <Input
+                id="edit-title"
+                value={editForm.title}
+                onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-desc">简介</Label>
+              <Textarea
+                id="edit-desc"
+                value={editForm.description}
+                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                rows={4}
+                placeholder="用几句话概括这部小说正在写什么。"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-genre">类型</Label>
+              <Input
+                id="edit-genre"
+                value={editForm.genre}
+                onChange={(e) => setEditForm({ ...editForm, genre: e.target.value })}
+                placeholder="玄幻 / 科幻 / 都市..."
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={handleCancelEdit}>
+                取消
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                保存修改
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }

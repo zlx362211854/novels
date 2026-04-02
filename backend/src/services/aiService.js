@@ -1,6 +1,6 @@
 const db = require('../config/database');
 
-async function generateChapter(params) {
+async function generateChapter(params, signal) {
   const { novel, chapter, architecture, templateId } = params;
 
   const config = getConfig();
@@ -8,18 +8,23 @@ async function generateChapter(params) {
 
   const prompt = buildPrompt(template, { novel, chapter, architecture });
 
-  const aiClient = getAIClient(config);
+  const aiClient = getAIClient(config, signal);
 
   let lastError = null;
   for (let attempt = 0; attempt < 3; attempt++) {
+    if (signal?.aborted) throw Object.assign(new Error('请求已取消'), { name: 'AbortError' });
     try {
       const content = await aiClient.generate(prompt);
       return content;
     } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('[abort] AI fetch 已中止 (generateChapter)');
+        throw error;
+      }
       lastError = error;
       console.error(`AI生成失败，第${attempt + 1}次重试:`, error.message);
       if (attempt < 2) {
-        await sleep(60000);
+        await sleep(60000, signal);
       }
     }
   }
@@ -27,7 +32,7 @@ async function generateChapter(params) {
   throw new Error(`AI生成失败: ${lastError.message}`);
 }
 
-async function generateChapterFromArchitecture(params) {
+async function generateChapterFromArchitecture(params, signal) {
   console.log('=== generateChapterFromArchitecture 开始执行 ===');
   const { novelId, chapterArchId } = params;
   console.log('参数:', { novelId, chapterArchId });
@@ -47,24 +52,26 @@ async function generateChapterFromArchitecture(params) {
 
   const volumeArch = chapterArch.parent_id ? archStmt.get(chapterArch.parent_id) : null;
 
-  const prevChapterContent = getPreviousChapterContent(novelId, chapterArchId, chapterArch.parent_id);
+  const prevChapterContent = getPreviousChapterContent(chapterArchId, chapterArch.parent_id);
 
   const prompt = buildChapterPrompt(novel, chapterArch, volumeArch, fullArch, prevChapterContent);
 
   const config = getConfig();
   console.log('config.aiModel:', config.aiModel);
-  const aiClient = getAIClient(config);
+  const aiClient = getAIClient(config, signal);
 
   let lastError = null;
   for (let attempt = 0; attempt < 3; attempt++) {
+    if (signal?.aborted) throw Object.assign(new Error('请求已取消'), { name: 'AbortError' });
     try {
       const content = await aiClient.generate(prompt);
       return content;
     } catch (error) {
+      if (error.name === 'AbortError') throw error;
       lastError = error;
       console.error(`AI生成章节失败，第${attempt + 1}次重试:`, error.message);
       if (attempt < 2) {
-        await sleep(60000);
+        await sleep(60000, signal);
       }
     }
   }
@@ -72,14 +79,14 @@ async function generateChapterFromArchitecture(params) {
   throw new Error(`AI生成失败: ${lastError.message}`);
 }
 
-function getPreviousChapterContent(novelId, currentArchId, parentId) {
+function getPreviousChapterContent(currentArchId, parentId) {
   if (!parentId) return null;
 
   const siblingStmt = db.prepare(`
-    SELECT a.id 
-    FROM architectures a 
+    SELECT a.id
+    FROM architectures a
     WHERE a.parent_id = ? AND a.level = 'chapter' AND a.id < ?
-    ORDER BY a.id DESC 
+    ORDER BY a.id DESC
     LIMIT 1
   `);
   const prevArch = siblingStmt.get(parentId, currentArchId);
@@ -87,8 +94,8 @@ function getPreviousChapterContent(novelId, currentArchId, parentId) {
   if (!prevArch) return null;
 
   const chapterStmt = db.prepare(`
-    SELECT c.content, c.title 
-    FROM chapters c 
+    SELECT c.content, c.title
+    FROM chapters c
     WHERE c.architecture_id = ?
     LIMIT 1
   `);
@@ -281,22 +288,66 @@ function buildPrompt(template, params) {
   return prompt;
 }
 
-function getAIClient(config) {
+function startProgressLog(label, signal) {
+  const start = Date.now();
+  const timer = setInterval(() => {
+    const elapsed = Math.round((Date.now() - start) / 1000);
+    console.log(`[AI] ${label} 生成中... 已等待 ${elapsed}s`);
+  }, 5000);
+  signal?.addEventListener('abort', () => clearInterval(timer), { once: true });
+  return () => clearInterval(timer);
+}
+
+function getAIClient(config, signal) {
   if (config.aiModel === 'deepseek') {
     return {
       generate: async (prompt) => {
-        console.log('=== AI调用 ===');
-        console.log('模型: deepseek-chat');
-        console.log('max_tokens: 8000');
-        console.log('==============');
-        const response = await fetch(config.deepseekApiUrl, {
+        console.log('[AI] 开始调用 deepseek-chat');
+        const stop = startProgressLog('deepseek-chat', signal);
+        try {
+          const response = await fetch(config.deepseekApiUrl, {
+            method: 'POST',
+            signal,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${config.deepseekApiKey}`
+            },
+            body: JSON.stringify({
+              model: 'deepseek-chat',
+              messages: [{ role: 'user', content: prompt }],
+              temperature: 0.8,
+              max_tokens: 8000
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`DeepSeek API错误: ${response.status}`);
+          }
+
+          const data = await response.json();
+          console.log('[AI] deepseek-chat 返回完成');
+          return data.choices[0].message.content;
+        } finally {
+          stop();
+        }
+      }
+    };
+  }
+
+  return {
+    generate: async (prompt) => {
+      console.log('[AI] 开始调用 glm-4-long');
+      const stop = startProgressLog('glm-4-long', signal);
+      try {
+        const response = await fetch(config.zhipuApiUrl, {
           method: 'POST',
+          signal,
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${config.deepseekApiKey}`
+            'Authorization': `Bearer ${config.zhipuApiKey}`
           },
           body: JSON.stringify({
-            model: 'deepseek-chat',
+            model: 'glm-4-long',
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.8,
             max_tokens: 8000
@@ -304,47 +355,30 @@ function getAIClient(config) {
         });
 
         if (!response.ok) {
-          throw new Error(`DeepSeek API错误: ${response.status}`);
+          throw new Error(`智谱AI API错误: ${response.status}`);
         }
 
         const data = await response.json();
+        console.log('[AI] glm-4-long 返回完成');
         return data.choices[0].message.content;
+      } finally {
+        stop();
       }
-    };
-  }
-
-  return {
-    generate: async (prompt) => {
-      console.log('=== AI调用 ===');
-      console.log('模型: glm-4-long');
-      console.log('max_tokens: 8000');
-      console.log('==============');
-      const response = await fetch(config.zhipuApiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.zhipuApiKey}`
-        },
-        body: JSON.stringify({
-          model: 'glm-4-long',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.8,
-          max_tokens: 8000
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`智谱AI API错误: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data.choices[0].message.content;
     }
   };
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(Object.assign(new Error('请求已取消'), { name: 'AbortError' }));
+    const timer = setTimeout(resolve, ms);
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(Object.assign(new Error('请求已取消'), { name: 'AbortError' }));
+      }, { once: true });
+    }
+  });
 }
 
 module.exports = {

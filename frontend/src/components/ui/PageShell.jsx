@@ -1,77 +1,85 @@
+import { cn } from '@/lib/utils';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+
 export function PageShell({ eyebrow, title, description, actions, children }) {
   return (
-    <div className="page-shell mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <section className="hero-panel relative overflow-hidden rounded-[36px] border border-[color:var(--border)] px-6 py-7 sm:px-8 sm:py-9">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-3xl">
-            {eyebrow ? (
-              <p className="text-[0.72rem] font-semibold uppercase tracking-[0.34em] text-[color:var(--ink-muted)]">
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <Card className="border-border/50 bg-gradient-to-br from-slate-50 to-slate-100/50 shadow-sm">
+        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
+          <div className="space-y-1.5">
+            {eyebrow && (
+              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
                 {eyebrow}
               </p>
-            ) : null}
-            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-[color:var(--ink)] sm:text-4xl">
+            )}
+            <CardTitle className="text-2xl font-semibold tracking-tight sm:text-3xl">
               {title}
-            </h1>
-            {description ? (
-              <p className="mt-4 max-w-2xl text-sm leading-8 text-[color:var(--ink-muted)] sm:text-base">
+            </CardTitle>
+            {description && (
+              <CardDescription className="max-w-2xl text-sm leading-relaxed">
                 {description}
-              </p>
-            ) : null}
+              </CardDescription>
+            )}
           </div>
-          {actions ? <div className="flex flex-wrap gap-3">{actions}</div> : null}
-        </div>
-      </section>
-      <div className="mt-8 space-y-8">{children}</div>
+          {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+        </CardHeader>
+      </Card>
+      <div className="mt-6 space-y-6">{children}</div>
     </div>
   );
 }
 
 export function SectionCard({ title, description, actions, children, tone = 'default' }) {
-  const toneClass =
-    tone === 'accent'
-      ? 'border-[color:rgba(139,101,55,0.24)] bg-[linear-gradient(180deg,rgba(255,250,243,0.98),rgba(246,236,222,0.95))]'
-      : tone === 'soft'
-        ? 'border-[color:var(--border)] bg-[color:rgba(255,252,247,0.92)]'
-        : 'border-[color:var(--border)] bg-[color:rgba(255,250,243,0.98)]';
+  const toneStyles = {
+    default: 'bg-card border-border',
+    accent: 'bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20',
+    soft: 'bg-muted/30 border-border/50',
+  };
 
   return (
-    <section
-      className={`section-shell rounded-[30px] border p-5 ${toneClass}`}
-    >
+    <Card className={cn('shadow-sm', toneStyles[tone])}>
       {(title || description || actions) && (
-        <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="max-w-2xl">
-            {title ? <h2 className="text-xl font-semibold tracking-[-0.02em] text-[color:var(--ink)]">{title}</h2> : null}
-            {description ? (
-              <p className="mt-2 text-sm leading-7 text-[color:var(--ink-muted)]">{description}</p>
-            ) : null}
+        <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            {title && <CardTitle className="text-lg font-semibold">{title}</CardTitle>}
+            {description && (
+              <CardDescription className="text-sm leading-relaxed">
+                {description}
+              </CardDescription>
+            )}
           </div>
-          {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
-        </div>
+          {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+        </CardHeader>
       )}
-      {children}
-    </section>
+      <CardContent className={title || description || actions ? 'pt-0' : ''}>
+        {children}
+      </CardContent>
+    </Card>
   );
 }
 
 export function StatGrid({ items }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {items.map((item, index) => (
-        <div
+        <Card
           key={`${item.label ?? 'stat'}-${index}`}
-          className="rounded-[24px] border border-[color:var(--border)] bg-[color:rgba(255,252,246,0.92)] px-4 py-4 shadow-[0_10px_24px_rgba(38,28,18,0.04)]"
+          className="border-border/50 bg-card shadow-sm"
         >
-          <p className="text-[0.7rem] font-semibold uppercase tracking-[0.3em] text-[color:var(--ink-muted)]">
-            {item.label}
-          </p>
-          <p className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-[color:var(--ink)] tabular-nums">
-            {item.value}
-          </p>
-          {item.caption ? (
-            <p className="mt-2 text-sm leading-6 text-[color:var(--ink-muted)]">{item.caption}</p>
-          ) : null}
-        </div>
+          <CardHeader className="pb-2">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              {item.label}
+            </p>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold tracking-tight tabular-nums">
+              {item.value}
+            </p>
+            {item.caption && (
+              <p className="mt-1 text-sm text-muted-foreground">{item.caption}</p>
+            )}
+          </CardContent>
+        </Card>
       ))}
     </div>
   );

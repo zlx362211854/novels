@@ -1,14 +1,14 @@
 const db = require('../config/database');
 const aiService = require('./aiService');
 
-async function review(params) {
+async function review(params, signal) {
   const { chapter, novel, architecture } = params;
 
   const config = getConfig();
 
   const reviewPrompt = buildReviewPrompt(chapter, novel, architecture, config);
 
-  const aiClient = getAIClient(config);
+  const aiClient = getAIClient(config, signal);
 
   try {
     const reviewResult = await aiClient.generate(reviewPrompt);
@@ -146,18 +146,66 @@ function parseReviewResult(result) {
   };
 }
 
-function getAIClient(config) {
+function startProgressLog(label, signal) {
+  const start = Date.now();
+  const timer = setInterval(() => {
+    const elapsed = Math.round((Date.now() - start) / 1000);
+    console.log(`[AI] ${label} 生成中... 已等待 ${elapsed}s`);
+  }, 5000);
+  signal?.addEventListener('abort', () => clearInterval(timer), { once: true });
+  return () => clearInterval(timer);
+}
+
+function getAIClient(config, signal) {
   if (config.aiModel === 'deepseek') {
     return {
       generate: async (prompt) => {
-        const response = await fetch(config.deepseekApiUrl, {
+        console.log('[AI] 开始调用 deepseek-chat (review)');
+        const stop = startProgressLog('deepseek-chat (review)', signal);
+        try {
+          const response = await fetch(config.deepseekApiUrl, {
+            method: 'POST',
+            signal,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${config.deepseekApiKey}`
+            },
+            body: JSON.stringify({
+              model: 'deepseek-chat',
+              messages: [{ role: 'user', content: prompt }],
+              temperature: 0.3,
+              max_tokens: 2000
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`DeepSeek API错误: ${response.status}`);
+          }
+
+          const data = await response.json();
+          console.log('[AI] deepseek-chat (review) 返回完成');
+          return data.choices[0].message.content;
+        } finally {
+          stop();
+        }
+      }
+    };
+  }
+
+  return {
+    generate: async (prompt) => {
+      console.log('[AI] 开始调用 glm-4 (review)');
+      const stop = startProgressLog('glm-4 (review)', signal);
+      try {
+        const response = await fetch(config.zhipuApiUrl, {
           method: 'POST',
+          signal,
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${config.deepseekApiKey}`
+            'Authorization': `Bearer ${config.zhipuApiKey}`
           },
           body: JSON.stringify({
-            model: 'deepseek-chat',
+            model: 'glm-4',
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.3,
             max_tokens: 2000
@@ -165,37 +213,15 @@ function getAIClient(config) {
         });
 
         if (!response.ok) {
-          throw new Error(`DeepSeek API错误: ${response.status}`);
+          throw new Error(`智谱AI API错误: ${response.status}`);
         }
 
         const data = await response.json();
+        console.log('[AI] glm-4 (review) 返回完成');
         return data.choices[0].message.content;
+      } finally {
+        stop();
       }
-    };
-  }
-
-  return {
-    generate: async (prompt) => {
-      const response = await fetch(config.zhipuApiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.zhipuApiKey}`
-        },
-        body: JSON.stringify({
-          model: 'glm-4',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.3,
-          max_tokens: 2000
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`智谱AI API错误: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data.choices[0].message.content;
     }
   };
 }

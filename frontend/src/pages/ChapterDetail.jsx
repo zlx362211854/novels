@@ -3,12 +3,45 @@ import { Link, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { chapterApi, templateApi } from '../services/api';
 import { useFeedback } from '../components/ui/FeedbackProvider';
+import { MarkdownEditor } from '../components/ui/MarkdownEditor';
 import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
+import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { Alert, AlertTitle, AlertDescription } from '../components/ui/alert';
+import { ScrollArea } from '../components/ui/scroll-area';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
+import { Card, CardContent } from '../components/ui/card';
+import { cn } from '@/lib/utils';
+import {
+  ArrowLeft,
+  Copy,
+  Edit3,
+  Save,
+  X,
+  Sparkles,
+  RefreshCw,
+  History,
+  FileText,
+  Eye,
+  AlertTriangle,
+  CheckCircle,
+  Info,
+} from 'lucide-react';
 
-function statusClass(status) {
-  if (status === 'generated') return 'bg-emerald-100 text-emerald-700';
-  if (status === 'draft') return 'bg-slate-100 text-slate-600';
-  return 'bg-sky-100 text-sky-700';
+function statusVariant(status) {
+  if (status === 'generated') return 'default';
+  if (status === 'draft') return 'secondary';
+  return 'outline';
 }
 
 function statusLabel(status) {
@@ -69,9 +102,21 @@ function ChapterDetail() {
   const stats = useMemo(
     () => [
       { label: '章节序号', value: chapter?.chapter_number || '-', caption: '当前正文所在位置' },
-      { label: '字数', value: (mode === 'edit' ? editContent : chapter?.content || '').length || 0, caption: '正文长度估算' },
-      { label: '历史版本', value: versions.length, caption: versions.length ? '可回退到旧稿' : '还没有历史版本' },
-      { label: '关联架构', value: chapter?.architecture_id ? '已关联' : '无', caption: chapter?.architecture_id ? '可用架构重生成' : '暂无可重生成来源' },
+      {
+        label: '字数',
+        value: (mode === 'edit' ? editContent : chapter?.content || '').length || 0,
+        caption: '正文长度估算',
+      },
+      {
+        label: '历史版本',
+        value: versions.length,
+        caption: versions.length ? '可回退到旧稿' : '还没有历史版本',
+      },
+      {
+        label: '关联架构',
+        value: chapter?.architecture_id ? '已关联' : '无',
+        caption: chapter?.architecture_id ? '可用架构重生成' : '暂无可重生成来源',
+      },
     ],
     [chapter, editContent, mode, versions.length]
   );
@@ -127,7 +172,9 @@ function ChapterDetail() {
     const confirmed = await feedback.confirm({
       title: '用 AI 覆盖当前编辑区内容？',
       message: '这会用模板重新生成章节正文。建议在继续前确认当前改动已保存。',
-      note: hasUnsavedChanges ? '你当前还有未保存修改。继续后，编辑区将被新内容覆盖。' : undefined,
+      note: hasUnsavedChanges
+        ? '你当前还有未保存修改。继续后，编辑区将被新内容覆盖。'
+        : undefined,
       confirmText: '开始生成',
       cancelText: '先不生成',
     });
@@ -156,7 +203,9 @@ function ChapterDetail() {
     const confirmed = await feedback.confirm({
       title: '按架构重新生成正文？',
       message: '系统会基于当前关联架构重新生成正文，并覆盖章节当前内容。',
-      note: chapter?.architecture_id ? '如果想保留当前版本，建议先保存或确认历史版本中有可回退记录。' : '当前章节没有关联架构。',
+      note: chapter?.architecture_id
+        ? '如果想保留当前版本，建议先保存或确认历史版本中有可回退记录。'
+        : '当前章节没有关联架构。',
       confirmText: '重新生成',
       cancelText: '取消',
       variant: 'danger',
@@ -217,7 +266,11 @@ function ChapterDetail() {
   };
 
   if (loading) {
-    return <div className="flex min-h-[50vh] items-center justify-center text-slate-500">正在加载章节详情...</div>;
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center text-slate-500">
+        正在加载章节详情...
+      </div>
+    );
   }
 
   if (!chapter) {
@@ -230,28 +283,35 @@ function ChapterDetail() {
       title={chapter.title || `第 ${chapter.chapter_number} 章`}
       description="先读，再决定是重生成、局部改写，还是直接回滚版本。把这些动作放到同一页里，避免打断写作节奏。"
       actions={
-        <>
-          <Link
-            to={`/novels/${chapter.novel_id}/architecture`}
-            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-white"
-          >
-            返回完整架构页
-          </Link>
-          <button
-            type="button"
-            onClick={handleCopy}
-            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-white"
-          >
-            复制正文
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('edit')}
-            className="rounded-full bg-slate-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-600"
-          >
-            进入编辑
-          </button>
-        </>
+        <div className="flex flex-wrap items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to={`/novels/${chapter.novel_id}/architecture`} className="flex items-center justify-center">
+                  <ArrowLeft className="mr-1.5 size-4" />
+                  返回
+                </Link>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>返回完整架构页</TooltipContent>
+          </Tooltip>
+          <div className="h-4 w-px bg-border" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="sm" onClick={handleCopy}>
+                <Copy className="mr-1.5 size-4" />
+                复制
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>复制章节正文到剪贴板</TooltipContent>
+          </Tooltip>
+          {mode === 'read' && (
+            <Button size="sm" onClick={() => setMode('edit')}>
+              <Edit3 className="mr-1.5 size-4" />
+              编辑
+            </Button>
+          )}
+        </div>
       }
     >
       <StatGrid items={stats} />
@@ -262,109 +322,167 @@ function ChapterDetail() {
           description="先决定要不要重新出稿，再进入精修，避免边写边犹豫。"
         >
           <div className="space-y-4">
-            <div className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4">
-              <div className="flex flex-col gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">AI 生成草稿</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    使用提示词模板重写当前章节。适合需要快速起稿或重置表达方式的时候。
-                  </p>
-                </div>
-                <div className="grid gap-3">
-                  <label className="grid gap-2">
-                    <span className="text-sm font-medium text-slate-700">提示词模板</span>
-                    <select
-                      value={selectedTemplate || ''}
-                      onChange={(event) => setSelectedTemplate(event.target.value ? parseInt(event.target.value, 10) : null)}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400"
-                    >
-                      {templates.map((template) => (
-                        <option key={template.id} value={template.id}>
-                          {template.name} {template.is_default ? '(默认)' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleGenerate}
-                    disabled={generating}
-                    className="rounded-full bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+            <Card className="border-slate-200 bg-slate-50/70">
+              <CardContent className="p-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-slate-800">AI 生成草稿</p>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          onClick={handleGenerate}
+                          disabled={generating}
+                          size="sm"
+                        >
+                          <Sparkles className="mr-1.5 size-4" />
+                          {generating ? '生成中...' : '生成'}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>使用选中的模板生成章节内容</TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <Select
+                    value={selectedTemplate?.toString() || ''}
+                    onValueChange={(value) =>
+                      setSelectedTemplate(value ? parseInt(value, 10) : null)
+                    }
                   >
-                    {generating ? '生成中...' : '用模板生成新草稿'}
-                  </button>
+                    <SelectTrigger className="h-9 w-full text-sm">
+                      <SelectValue placeholder="选择提示词模板">
+                        {(value) => {
+                          const t = templates.find((tmpl) => tmpl.id.toString() === value);
+                          return t ? `${t.name}${t.is_default ? ' (默认)' : ''}` : null;
+                        }}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {templates.map((template) => (
+                        <SelectItem key={template.id} value={template.id.toString()}>
+                          {template.name} {template.is_default ? '(默认)' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
 
             {chapter.architecture_id ? (
-              <div className="rounded-[24px] border border-amber-200 bg-amber-50/70 p-4">
-                <p className="text-sm font-semibold text-amber-900">按架构重新生成</p>
-                <p className="mt-2 text-sm leading-6 text-amber-800/80">
+              <Alert className="border-amber-200 bg-amber-50/70">
+                <AlertTriangle className="size-4 text-amber-600" />
+                <AlertTitle className="text-amber-900">按架构重新生成</AlertTitle>
+                <AlertDescription className="text-amber-800/80">
                   当前章节已绑定架构，可以直接按结构重新出稿，更适合大幅跑偏后的回正。
-                </p>
-                <button
-                  type="button"
+                </AlertDescription>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={handleRegenerate}
                   disabled={regenerating}
-                  className="mt-4 rounded-full bg-amber-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-3 border-amber-300 bg-amber-100 hover:bg-amber-200 text-amber-900"
                 >
+                  <RefreshCw className="size-4" />
                   {regenerating ? '重新生成中...' : '按架构重新生成'}
-                </button>
-              </div>
+                </Button>
+              </Alert>
             ) : null}
 
             {review ? (
-              <div className={`rounded-[24px] border p-4 ${review.score >= 70 ? 'border-emerald-200 bg-emerald-50/70' : 'border-amber-200 bg-amber-50/70'}`}>
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-slate-800">AI 审核报告</p>
-                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${review.score >= 70 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                    评分 {review.score}
-                  </span>
-                </div>
-                {review.issues?.length ? (
-                  <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
-                    {review.issues.map((issue, index) => (
-                      <div key={`${issue.type}-${index}`} className="rounded-2xl bg-white/80 px-3 py-2">
-                        <span className="font-semibold text-rose-600">{issue.type}</span>
-                        <span className="ml-2">{issue.description}</span>
-                        {issue.suggestion ? <p className="mt-1 text-slate-500">建议：{issue.suggestion}</p> : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="mt-3 text-sm leading-6 text-slate-600">这次生成没有发现明显问题，可以直接进入人工润色。</p>
+              <Alert
+                className={cn(
+                  review.score >= 70
+                    ? 'border-emerald-200 bg-emerald-50/70'
+                    : 'border-amber-200 bg-amber-50/70'
                 )}
-              </div>
+              >
+                {review.score >= 70 ? (
+                  <CheckCircle className="size-4 text-emerald-600" />
+                ) : (
+                  <AlertTriangle className="size-4 text-amber-600" />
+                )}
+                <AlertTitle className="flex items-center justify-between">
+                  <span>AI 审核报告</span>
+                  <Badge
+                    variant={review.score >= 70 ? 'default' : 'secondary'}
+                    className={cn(
+                      review.score >= 70
+                        ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
+                        : 'bg-amber-100 text-amber-700 hover:bg-amber-100'
+                    )}
+                  >
+                    评分 {review.score}
+                  </Badge>
+                </AlertTitle>
+                <AlertDescription>
+                  {review.issues?.length ? (
+                    <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                      {review.issues.map((issue, index) => (
+                        <div
+                          key={`${issue.type}-${index}`}
+                          className="rounded-lg bg-white/80 px-3 py-2"
+                        >
+                          <span className="font-semibold text-rose-600">{issue.type}</span>
+                          <span className="ml-2">{issue.description}</span>
+                          {issue.suggestion ? (
+                            <p className="mt-1 text-slate-500">建议：{issue.suggestion}</p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      这次生成没有发现明显问题，可以直接进入人工润色。
+                    </p>
+                  )}
+                </AlertDescription>
+              </Alert>
             ) : null}
           </div>
         </SectionCard>
 
-        <SectionCard title="版本历史" description="回退动作应当在阅读态就清晰可见，而不是必须先进入编辑态。">
+        <SectionCard
+          title="版本历史"
+          description="回退动作应当在阅读态就清晰可见，而不是必须先进入编辑态。"
+        >
           {versions.length === 0 ? (
-            <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+              <History className="mx-auto mb-2 size-8 text-slate-400" />
               还没有历史版本。第一次保存或重新生成后，这里会开始积累回退记录。
             </div>
           ) : (
-            <div className="space-y-3">
-              {versions.map((version) => (
-                <div key={version.id} className="rounded-[24px] border border-slate-200 bg-slate-50/70 px-4 py-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">版本 {version.version_number}</p>
-                      <p className="mt-1 text-sm text-slate-500">{new Date(version.created_at).toLocaleString()}</p>
+            <ScrollArea className="h-[300px] pr-4">
+              <div className="space-y-2">
+                {versions.map((version) => (
+                  <div
+                    key={version.id}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 transition-colors hover:bg-slate-100/70"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-900">
+                        版本 {version.version_number}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {new Date(version.created_at).toLocaleString()}
+                      </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRestore(version.version_number)}
-                      className="rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-white"
-                    >
-                      恢复到编辑区
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs shrink-0"
+                          onClick={() => handleRestore(version.version_number)}
+                        >
+                          <History className="mr-1 size-3" />
+                          恢复
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>恢复到此版本</TooltipContent>
+                    </Tooltip>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </ScrollArea>
           )}
         </SectionCard>
       </div>
@@ -379,79 +497,104 @@ function ChapterDetail() {
         actions={
           mode === 'edit' ? (
             <>
-              <button
-                type="button"
-                onClick={handleCancel}
-                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
-              >
+              <Button variant="outline" onClick={handleCancel}>
+                <X className="size-4" />
                 取消编辑
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving}
-                className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saving ? '保存中...' : '保存章节'}
-              </button>
+              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button onClick={handleSave} disabled={saving}>
+                      <Save className="size-4" />
+                      {saving ? '保存中...' : '保存章节'}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {hasUnsavedChanges ? '有未保存的修改' : '保存当前内容'}
+                </TooltipContent>
+              </Tooltip>
             </>
           ) : (
-            <button
-              type="button"
-              onClick={() => setMode('edit')}
-              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-white"
-            >
+            <Button variant="outline" onClick={() => setMode('edit')}>
+              <Edit3 className="size-4" />
               开始润色
-            </button>
+            </Button>
           )
         }
       >
         {mode === 'edit' ? (
-          <div className="grid gap-0 overflow-hidden rounded-[28px] border border-slate-200 lg:grid-cols-2">
-            <div className="border-b border-slate-200 bg-white lg:border-b-0 lg:border-r">
-              <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-                <input
-                  type="text"
-                  value={editTitle}
-                  onChange={(event) => setEditTitle(event.target.value)}
-                  className="w-full bg-transparent text-lg font-semibold text-slate-900 outline-none"
-                  placeholder="章节标题"
-                />
-                <p className="mt-1 text-xs text-slate-400">
-                  {hasUnsavedChanges ? '有未保存修改' : '当前编辑区与已保存内容一致'}
-                </p>
-              </div>
-              <textarea
-                value={editContent}
-                onChange={(event) => setEditContent(event.target.value)}
-                className="min-h-[680px] w-full resize-y px-4 py-4 font-mono text-sm leading-7 text-slate-800 outline-none"
-                placeholder="在这里撰写章节内容，支持 Markdown。"
-              />
-            </div>
-            <div className="bg-slate-50/60">
-              <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600">
-                实时预览
-              </div>
-              <div className="min-h-[680px] overflow-y-auto p-5">
-                <div className="prose prose-slate max-w-none">
-                  <ReactMarkdown>{editContent || '*暂无内容*'}</ReactMarkdown>
+          <Tabs defaultValue="edit" className="w-full">
+            <TabsContent value="edit">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>章节标题</Label>
+                      {hasUnsavedChanges && (
+                        <Badge variant="secondary" className="text-xs">
+                          未保存
+                        </Badge>
+                      )}
+                    </div>
+                    <Input
+                      value={editTitle}
+                      onChange={(event) => setEditTitle(event.target.value)}
+                      placeholder="输入章节标题"
+                      className="text-lg font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-2 flex-1 flex flex-col min-h-0">
+                    <Label>正文内容</Label>
+                    <div className="flex-1 min-h-0 rounded-md border border-slate-200 overflow-hidden">
+                      <MarkdownEditor
+                        value={editContent}
+                        onChange={setEditContent}
+                        placeholder="在这里撰写章节内容，支持 Markdown。"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+                  <p className="mb-3 text-sm font-medium text-slate-600">实时预览</p>
+                  <ScrollArea>
+                    <div className="prose prose-slate max-w-none pr-4">
+                      <ReactMarkdown>{editContent || '*暂无内容*'}</ReactMarkdown>
+                    </div>
+                  </ScrollArea>
                 </div>
               </div>
-            </div>
-          </div>
+            </TabsContent>
+
+            <TabsContent value="preview">
+              <ScrollArea className="h-[600px]">
+                <div className="prose prose-lg max-w-none p-4">
+                  <ReactMarkdown>{editContent || '*暂无内容*'}</ReactMarkdown>
+                </div>
+              </ScrollArea>
+            </TabsContent>
+          </Tabs>
         ) : (
-          <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-8 shadow-[0_16px_40px_rgba(15,23,42,0.04)]">
-            <div className="mb-6 flex flex-wrap items-center gap-3 text-sm text-slate-500">
-              <span className="rounded-full bg-slate-100 px-3 py-1 font-medium">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="text-xs">
+                <FileText className="mr-1 size-3" />
                 第 {chapter.chapter_number} 章
-              </span>
-              <span className={`rounded-full px-3 py-1 font-medium ${statusClass(chapter.status)}`}>
-                {statusLabel(chapter.status)}
-              </span>
+              </Badge>
+              <Badge variant={statusVariant(chapter.status)}>{statusLabel(chapter.status)}</Badge>
+              {hasUnsavedChanges && (
+                <Badge variant="secondary" className="bg-amber-100 text-amber-700">
+                  有未保存修改
+                </Badge>
+              )}
             </div>
-            <div className="prose prose-lg max-w-none">
-              <ReactMarkdown>{chapter.content || '*暂无内容，点击上方按钮开始生成或编辑正文。*'}</ReactMarkdown>
-            </div>
+            <ScrollArea className="max-h-[600px] overflow-auto">
+              <div className="prose prose-slate max-w-none pr-3 leading-7">
+                <ReactMarkdown>
+                  {chapter.content || '*暂无内容，点击上方按钮开始生成或编辑正文。*'}
+                </ReactMarkdown>
+              </div>
+            </ScrollArea>
           </div>
         )}
       </SectionCard>
