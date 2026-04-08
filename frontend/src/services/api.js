@@ -32,6 +32,12 @@ export const architectureApi = {
     api.post(`/novels/${novelId}/generate-chapter-content`, { chapterArchId }),
   batchGenerateChapters: (novelId, volumeId) =>
     api.post(`/novels/${novelId}/batch-generate-chapters`, { volumeId }),
+  reviewArchitectures: (novelId) =>
+    api.post(`/novels/${novelId}/review-architectures`),
+  rewriteArchitectures: (novelId, reviewResult, userPrompt) =>
+    api.post(`/novels/${novelId}/rewrite-architectures`, { reviewResult, userPrompt }),
+  applyRewrite: (novelId, rewriteResult) =>
+    api.post(`/novels/${novelId}/apply-rewrite`, rewriteResult),
 };
 
 export const chapterApi = {

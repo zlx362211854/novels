@@ -28,7 +28,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, Plus, Pencil, Trash2, Sparkles, FileText, ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, Sparkles, FileText, ArrowLeft, ChevronDown, ChevronUp, Eye, RefreshCw } from 'lucide-react';
 
 function ExpandableText({ text, maxLength = 120, className = '' }) {
   const [expanded, setExpanded] = useState(false);
@@ -82,6 +82,22 @@ function ArchitectureManager() {
   const [savingPreview, setSavingPreview] = useState(false);
   const [formData, setFormData] = useState(initialForm);
   const [expandedVolumes, setExpandedVolumes] = useState({});
+  const [showReviewDialog, setShowReviewDialog] = useState(false);
+  const [showReviewConfirmDialog, setShowReviewConfirmDialog] = useState(false);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewResult, setReviewResult] = useState(() => {
+    // 从 localStorage 恢复审阅结果
+    const saved = localStorage.getItem(`architecture-review-${id}`);
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [showRewriteDialog, setShowRewriteDialog] = useState(false);
+  const [rewriteLoading, setRewriteLoading] = useState(false);
+  const [rewritePrompt, setRewritePrompt] = useState('');
+  const [rewriteResult, setRewriteResult] = useState(() => {
+    const saved = localStorage.getItem(`architecture-rewrite-${id}`);
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [applyingChanges, setApplyingChanges] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -384,6 +400,86 @@ function ArchitectureManager() {
 
   const getChapterByArchId = (archId) => chapters.find((chapter) => chapter.architecture_id === archId);
 
+  const handleReviewClick = () => {
+    if (architectures.length === 0) {
+      feedback.warning('请先创建至少一个架构。');
+      return;
+    }
+    // 如果有上次的审阅结果，直接显示；否则显示确认对话框
+    if (reviewResult) {
+      setShowReviewDialog(true);
+    } else {
+      setShowReviewConfirmDialog(true);
+    }
+  };
+
+  const handleStartReview = async () => {
+    setShowReviewConfirmDialog(false);
+    setReviewLoading(true);
+    try {
+      const res = await architectureApi.reviewArchitectures(id);
+      const result = res.data;
+      setReviewResult(result);
+      // 保存到 localStorage
+      localStorage.setItem(`architecture-review-${id}`, JSON.stringify(result));
+      setShowReviewDialog(true);
+      feedback.success('架构审阅完成。');
+    } catch (error) {
+      console.error('架构审阅失败:', error);
+      feedback.error(error.response?.data?.error || '审阅失败，请稍后再试。');
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
+  const handleClearReviewResult = () => {
+    setReviewResult(null);
+    localStorage.removeItem(`architecture-review-${id}`);
+    feedback.success('已清除审阅结果，可以重新审阅。');
+  };
+
+  const handleRewriteArchitectures = async () => {
+    if (!reviewResult) return;
+    setRewriteLoading(true);
+    setRewriteResult(null);
+    try {
+      const res = await architectureApi.rewriteArchitectures(id, reviewResult, rewritePrompt);
+      setRewriteResult(res.data);
+      localStorage.setItem(`architecture-rewrite-${id}`, JSON.stringify(res.data));
+      setShowRewriteDialog(true);
+      feedback.success('架构重写完成，请查看结果。');
+    } catch (error) {
+      console.error('架构重写失败:', error);
+      feedback.error(error.response?.data?.error || '重写失败，请稍后再试。');
+    } finally {
+      setRewriteLoading(false);
+    }
+  };
+
+  const handleApplyRewrite = async () => {
+    if (!rewriteResult) return;
+    setApplyingChanges(true);
+    try {
+      const res = await architectureApi.applyRewrite(id, rewriteResult);
+      const { stats } = res.data;
+
+      setShowRewriteDialog(false);
+      setShowReviewDialog(false);
+      setRewriteResult(null);
+      setReviewResult(null);
+      setRewritePrompt('');
+      localStorage.removeItem(`architecture-rewrite-${id}`);
+      localStorage.removeItem(`architecture-review-${id}`);
+      feedback.success(`架构更新完成：更新 ${stats.updated} 项，新增 ${stats.created} 项，删除 ${stats.deleted} 项。`);
+      loadData();
+    } catch (error) {
+      console.error('应用更改失败:', error);
+      feedback.error(error.response?.data?.error || '应用更改失败，请稍后再试。');
+    } finally {
+      setApplyingChanges(false);
+    }
+  };
+
   const fullArch = architectures.find((arch) => arch.level === 'full');
   const volumes = architectures.filter((arch) => arch.level === 'volume');
   const chapterArchs = architectures.filter((arch) => arch.level === 'chapter');
@@ -427,6 +523,19 @@ function ArchitectureManager() {
             </Link>
           </Button>
           <div className="h-4 w-px bg-border" />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleReviewClick}
+            disabled={reviewLoading || architectures.length === 0}
+          >
+            {reviewLoading ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Eye className="mr-1.5 h-4 w-4" />
+            )}
+            {reviewResult ? '查看审阅结果' : '审阅架构'}
+          </Button>
           <Button size="sm" onClick={startCreate}>
             <Plus className="mr-1.5 h-4 w-4" />
             新建架构
@@ -960,6 +1069,199 @@ function ArchitectureManager() {
               {savingPreview && <Loader2 className="h-4 w-4 animate-spin" />}
               保存为正式章节
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Architecture Review Dialog */}
+      <Dialog open={showReviewDialog} onOpenChange={(open) => !open && setShowReviewDialog(false)}>
+        <DialogContent className="sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>架构审阅结果</DialogTitle>
+            <DialogDescription>
+              AI 已审阅完整架构，以下是发现的问题和改进建议。
+            </DialogDescription>
+          </DialogHeader>
+
+          {reviewResult && (
+            <ScrollArea className="max-h-[500px]">
+              <div className="space-y-6 pr-4">
+                {/* Overall Assessment */}
+                <div className="rounded-lg border bg-slate-50/50 p-4">
+                  <h4 className="mb-2 font-semibold">整体评价</h4>
+                  <p className="text-sm text-slate-600">{reviewResult.overallAssessment}</p>
+                </div>
+
+                {/* Issues */}
+                {reviewResult.issues && reviewResult.issues.length > 0 && (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold">发现的问题</h4>
+                    {reviewResult.issues.map((issue, index) => (
+                      <Card key={index} className="border-l-4 border-l-amber-400">
+                        <CardContent className="p-4">
+                          <div className="mb-2 flex items-center gap-2">
+                            <Badge
+                              variant={
+                                issue.severity === 'high'
+                                  ? 'destructive'
+                                  : issue.severity === 'medium'
+                                    ? 'default'
+                                    : 'secondary'
+                              }
+                            >
+                              {issue.severity === 'high' ? '严重' : issue.severity === 'medium' ? '中等' : '轻微'}
+                            </Badge>
+                            <Badge variant="outline">{issue.type}</Badge>
+                            {issue.location && (
+                              <span className="text-xs text-muted-foreground">{issue.location}</span>
+                            )}
+                          </div>
+                          <p className="mb-2 text-sm font-medium">{issue.description}</p>
+                          <p className="text-sm text-slate-600">
+                            <span className="font-medium">建议：</span>
+                            {issue.suggestion}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+
+                {/* Improvement Suggestions */}
+                {reviewResult.improvementSuggestions && (
+                  <div className="rounded-lg border bg-slate-50/50 p-4">
+                    <h4 className="mb-2 font-semibold">整体改进建议</h4>
+                    <p className="text-sm text-slate-600">{reviewResult.improvementSuggestions}</p>
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          )}
+
+          <Separator />
+
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button variant="outline" onClick={() => setShowReviewDialog(false)}>
+              关闭
+            </Button>
+            <Button variant="ghost" onClick={handleClearReviewResult}>
+              重新审阅
+            </Button>
+            <Button
+              onClick={() => {
+                setShowReviewDialog(false);
+                setShowRewriteDialog(true);
+              }}
+              disabled={!reviewResult}
+            >
+              <RefreshCw className="mr-1.5 h-4 w-4" />
+              一键更改
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Review Confirm Dialog */}
+      <Dialog open={showReviewConfirmDialog} onOpenChange={(open) => !open && setShowReviewConfirmDialog(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>开始架构审阅</DialogTitle>
+            <DialogDescription>
+              审阅过程会分析全本架构、卷架构和章架构的完整性和合理性，可能需要几分钟时间。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-lg border bg-amber-50/50 p-4">
+            <p className="text-sm text-amber-800">
+              <strong>提示：</strong>审阅完成后，结果会自动保存。你可以随时查看审阅结果，直到你决定重新审阅或应用更改。
+            </p>
+          </div>
+
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button variant="outline" onClick={() => setShowReviewConfirmDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={handleStartReview} disabled={reviewLoading}>
+              {reviewLoading && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              开始审阅
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Architecture Rewrite Dialog */}
+      <Dialog open={showRewriteDialog} onOpenChange={(open) => !open && setShowRewriteDialog(false)}>
+        <DialogContent className="sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>架构优化</DialogTitle>
+            <DialogDescription>
+              AI 将根据审阅意见优化架构。你可以添加额外的要求来指导优化方向。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>额外要求（可选）</Label>
+              <Textarea
+                value={rewritePrompt}
+                onChange={(e) => setRewritePrompt(e.target.value)}
+                placeholder="例如：请加强主角的成长弧线；第三卷的高潮需要更激烈一些..."
+                rows={3}
+              />
+            </div>
+
+            {rewriteResult && (
+              <ScrollArea className="max-h-[400px] rounded-lg border bg-slate-50/50 p-4">
+                <div className="space-y-4">
+                  {rewriteResult.fullArchitecture && (
+                    <div>
+                      <h4 className="mb-2 font-semibold">全本架构</h4>
+                      <p className="text-sm font-medium">{rewriteResult.fullArchitecture.title}</p>
+                      <p className="text-sm text-slate-600">
+                        {rewriteResult.fullArchitecture.plotOutline}
+                      </p>
+                    </div>
+                  )}
+
+                  {rewriteResult.volumes && rewriteResult.volumes.length > 0 && (
+                    <div>
+                      <h4 className="mb-2 font-semibold">卷架构预览</h4>
+                      <div className="space-y-2">
+                        {rewriteResult.volumes.map((vol, idx) => (
+                          <div key={idx} className="rounded border bg-white p-3">
+                            <p className="text-sm font-medium">
+                              {idx + 1}. {vol.title}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {vol.chapters?.length || 0} 章
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            )}
+          </div>
+
+          <Separator />
+
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button variant="outline" onClick={() => setShowRewriteDialog(false)}>
+              取消
+            </Button>
+            {!rewriteResult ? (
+              <Button onClick={handleRewriteArchitectures} disabled={rewriteLoading}>
+                {rewriteLoading && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                开始优化
+              </Button>
+            ) : (
+              <Button onClick={handleApplyRewrite} disabled={applyingChanges}>
+                {applyingChanges && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                应用更改
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

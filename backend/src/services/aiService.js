@@ -298,13 +298,23 @@ function startProgressLog(label, signal) {
   return () => clearInterval(timer);
 }
 
-function getAIClient(config, signal) {
+function getAIClient(config, signal, options = {}) {
+  const maxTokens = options.maxTokens || 8000;
   if (config.aiModel === 'deepseek') {
     return {
       generate: async (prompt) => {
-        console.log('[AI] 开始调用 deepseek-chat');
+        console.log(`[AI] 开始调用 deepseek-chat (max_tokens: ${maxTokens})`);
         const stop = startProgressLog('deepseek-chat', signal);
         try {
+          const body = {
+            model: 'deepseek-chat',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.8,
+            max_tokens: maxTokens
+          };
+          if (options.jsonMode) {
+            body.response_format = { type: 'json_object' };
+          }
           const response = await fetch(config.deepseekApiUrl, {
             method: 'POST',
             signal,
@@ -312,12 +322,7 @@ function getAIClient(config, signal) {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${config.deepseekApiKey}`
             },
-            body: JSON.stringify({
-              model: 'deepseek-chat',
-              messages: [{ role: 'user', content: prompt }],
-              temperature: 0.8,
-              max_tokens: 8000
-            })
+            body: JSON.stringify(body)
           });
 
           if (!response.ok) {
@@ -325,7 +330,11 @@ function getAIClient(config, signal) {
           }
 
           const data = await response.json();
-          console.log('[AI] deepseek-chat 返回完成');
+          const finishReason = data.choices[0].finish_reason;
+          console.log(`[AI] deepseek-chat 返回完成 (finish_reason: ${finishReason})`);
+          if (finishReason === 'length') {
+            throw new Error('AI 输出被截断（max_tokens 不足），请减少内容量或增大 max_tokens');
+          }
           return data.choices[0].message.content;
         } finally {
           stop();
@@ -334,10 +343,52 @@ function getAIClient(config, signal) {
     };
   }
 
+  if (config.aiModel === 'deepseek-reasoner') {
+    return {
+      generate: async (prompt) => {
+        console.log(`[AI] 开始调用 deepseek-reasoner (max_tokens: ${maxTokens})`);
+        const stop = startProgressLog('deepseek-reasoner', signal);
+        try {
+          const body = {
+            model: 'deepseek-reasoner',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: maxTokens
+          };
+          const response = await fetch(config.deepseekApiUrl, {
+            method: 'POST',
+            signal,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${config.deepseekApiKey}`
+            },
+            body: JSON.stringify(body)
+          });
+
+          if (!response.ok) {
+            const errBody = await response.text().catch(() => '');
+            console.error(`DeepSeek Reasoner API错误响应:`, errBody);
+            throw new Error(`DeepSeek Reasoner API错误: ${response.status} ${errBody}`);
+          }
+
+          const data = await response.json();
+          const finishReason = data.choices[0].finish_reason;
+          console.log(`[AI] deepseek-reasoner 返回完成 (finish_reason: ${finishReason})`);
+          if (finishReason === 'length') {
+            throw new Error('AI 输出被截断（max_tokens 不足），请减少内容量或增大 max_tokens');
+          }
+          return data.choices[0].message.content;
+        } finally {
+          stop();
+        }
+      }
+    };
+  }
+
+  const zhipuModel = options.model || 'glm-4-long';
   return {
     generate: async (prompt) => {
-      console.log('[AI] 开始调用 glm-4-long');
-      const stop = startProgressLog('glm-4-long', signal);
+      console.log(`[AI] 开始调用 ${zhipuModel} (max_tokens: ${maxTokens})`);
+      const stop = startProgressLog(zhipuModel, signal);
       try {
         const response = await fetch(config.zhipuApiUrl, {
           method: 'POST',
@@ -347,19 +398,25 @@ function getAIClient(config, signal) {
             'Authorization': `Bearer ${config.zhipuApiKey}`
           },
           body: JSON.stringify({
-            model: 'glm-4-long',
+            model: zhipuModel,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.8,
-            max_tokens: 8000
+            max_tokens: maxTokens
           })
         });
 
         if (!response.ok) {
-          throw new Error(`智谱AI API错误: ${response.status}`);
+          const errBody = await response.text().catch(() => '');
+          console.error(`智谱AI API错误响应:`, errBody);
+          throw new Error(`智谱AI API错误: ${response.status} ${errBody}`);
         }
 
         const data = await response.json();
-        console.log('[AI] glm-4-long 返回完成');
+        const finishReason = data.choices[0].finish_reason;
+        console.log(`[AI] ${zhipuModel} 返回完成 (finish_reason: ${finishReason})`);
+        if (finishReason === 'length') {
+          throw new Error('AI 输出被截断（max_tokens 不足），请减少内容量或增大 max_tokens');
+        }
         return data.choices[0].message.content;
       } finally {
         stop();
@@ -383,5 +440,8 @@ function sleep(ms, signal) {
 
 module.exports = {
   generateChapter,
-  generateChapterFromArchitecture
+  generateChapterFromArchitecture,
+  getConfig,
+  getAIClient,
+  sleep
 };

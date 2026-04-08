@@ -4,6 +4,7 @@ const novelService = require('../services/novelService');
 const chapterService = require('../services/chapterService');
 const architectureService = require('../services/architectureService');
 const architectureAiService = require('../services/architectureAiService');
+const architectureReviewService = require('../services/architectureReviewService');
 const aiService = require('../services/aiService');
 
 router.post('/', (req, res) => {
@@ -270,6 +271,150 @@ router.post('/:id/batch-generate-chapters', async (req, res) => {
     res.json(results);
   } catch (error) {
     if (ac.signal.aborted) return;
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 架构审阅
+router.post('/:id/review-architectures', async (req, res) => {
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      console.log('[abort] 客户端断开 → review-architectures 已中止');
+      ac.abort();
+    }
+  });
+  try {
+    const result = await architectureReviewService.reviewArchitectures(req.params.id, ac.signal);
+    res.json(result);
+  } catch (error) {
+    if (ac.signal.aborted) return;
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 架构重写
+router.post('/:id/rewrite-architectures', async (req, res) => {
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      console.log('[abort] 客户端断开 → rewrite-architectures 已中止');
+      ac.abort();
+    }
+  });
+  try {
+    const { reviewResult, userPrompt } = req.body;
+    if (!reviewResult) {
+      return res.status(400).json({ error: '审阅结果不能为空' });
+    }
+    const result = await architectureReviewService.rewriteArchitectures(
+      req.params.id,
+      reviewResult,
+      userPrompt,
+      ac.signal
+    );
+    res.json(result);
+  } catch (error) {
+    if (ac.signal.aborted) return;
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 批量应用重写结果（处理增删改）
+router.post('/:id/apply-rewrite', (req, res) => {
+  try {
+    const novelId = req.params.id;
+    const { fullArchitecture, volumes } = req.body;
+    if (!fullArchitecture || !volumes) {
+      return res.status(400).json({ error: '缺少重写结果数据' });
+    }
+
+    const existingArchs = architectureService.findByNovelId(novelId);
+    const existingFull = existingArchs.find(a => a.level === 'full');
+    const existingVolumes = existingArchs.filter(a => a.level === 'volume');
+    const existingChapters = existingArchs.filter(a => a.level === 'chapter');
+
+    const stats = { updated: 0, created: 0, deleted: 0 };
+
+    // 1. 更新全本架构
+    if (existingFull) {
+      architectureService.update(existingFull.id, {
+        title: fullArchitecture.title,
+        plotOutline: fullArchitecture.plotOutline,
+        characters: fullArchitecture.characters,
+        worldSetting: fullArchitecture.worldSetting,
+        emotionalTone: fullArchitecture.emotionalTone,
+      });
+      stats.updated++;
+    }
+
+    // 2. 更新卷架构 + 处理章节增删
+    for (const vol of volumes) {
+      // 更新卷本身
+      const existingVol = existingVolumes.find(v => String(v.id) === String(vol.id));
+      if (existingVol) {
+        architectureService.update(existingVol.id, {
+          title: vol.title,
+          plotOutline: vol.plotOutline,
+          characters: vol.characters,
+          worldSetting: vol.worldSetting,
+          emotionalTone: vol.emotionalTone,
+        });
+        stats.updated++;
+      }
+
+      const parentId = existingVol ? existingVol.id : null;
+      if (!parentId) continue;
+
+      // 该卷下的现有章节
+      const volExistingChapters = existingChapters.filter(ch => ch.parent_id === parentId);
+      const newChapters = vol.chapters || [];
+
+      // 收集 AI 返回的有效已存在 ID
+      const rewriteChapterIds = new Set();
+      for (const ch of newChapters) {
+        const existingCh = volExistingChapters.find(e => String(e.id) === String(ch.id));
+        if (existingCh) {
+          rewriteChapterIds.add(existingCh.id);
+        }
+      }
+
+      // 删除不在重写结果中的旧章节
+      for (const existingCh of volExistingChapters) {
+        if (!rewriteChapterIds.has(existingCh.id)) {
+          architectureService.delete(existingCh.id);
+          stats.deleted++;
+        }
+      }
+
+      // 更新已有章节 / 创建新章节
+      for (const ch of newChapters) {
+        const existingCh = volExistingChapters.find(e => String(e.id) === String(ch.id));
+        if (existingCh) {
+          architectureService.update(existingCh.id, {
+            title: ch.title,
+            plotOutline: ch.plotOutline,
+          });
+          stats.updated++;
+        } else {
+          architectureService.create({
+            novelId,
+            level: 'chapter',
+            parentId,
+            title: ch.title,
+            plotOutline: ch.plotOutline,
+          });
+          stats.created++;
+        }
+      }
+    }
+
+    res.json({
+      message: '架构更新完成',
+      stats,
+    });
+  } catch (error) {
+    console.error('应用重写结果失败:', error);
     res.status(500).json({ error: error.message });
   }
 });
