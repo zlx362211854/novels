@@ -108,6 +108,41 @@ router.post('/:id/regenerate', async (req, res) => {
   }
 });
 
+router.post('/:id/review', async (req, res) => {
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      console.log('[abort] 客户端断开 → chapter/review 已中止');
+      ac.abort();
+    }
+  });
+  try {
+    const result = await chapterService.reviewChapter(req.params.id, ac.signal);
+    res.json(result);
+  } catch (error) {
+    if (ac.signal.aborted) return;
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/:id/revise', async (req, res) => {
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      console.log('[abort] 客户端断开 → chapter/revise 已中止');
+      ac.abort();
+    }
+  });
+  try {
+    const { reviewResult } = req.body;
+    const result = await chapterService.reviseChapter(req.params.id, reviewResult, ac.signal);
+    res.json(result);
+  } catch (error) {
+    if (ac.signal.aborted) return;
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/:id/versions', async (req, res) => {
   try {
     const versions = await chapterService.getVersions(req.params.id);

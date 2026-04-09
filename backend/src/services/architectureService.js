@@ -1,4 +1,4 @@
-const { Architecture, Novel } = require('../models/sequelize');
+const { Architecture, Novel, Chapter } = require('../models/sequelize');
 
 async function create(data) {
   const architecture = await Architecture.create({
@@ -59,6 +59,42 @@ async function deleteArchitecture(id) {
   return true;
 }
 
+async function replaceChapterArchitectures(novelId, volumeId, chapters) {
+  const where = {
+    novel_id: novelId,
+    level: 'chapter',
+    parent_id: volumeId || null
+  };
+
+  const existingArchitectures = await Architecture.findAll({
+    where,
+    order: [['id', 'ASC']]
+  });
+
+  const existingIds = existingArchitectures.map((architecture) => architecture.id);
+  if (existingIds.length) {
+    await Chapter.destroy({
+      where: { architecture_id: existingIds }
+    });
+
+    await Architecture.destroy({ where: { id: existingIds } });
+  }
+
+  const created = [];
+  for (const chapter of chapters) {
+    const createdArchitecture = await create({
+      novelId,
+      level: 'chapter',
+      parentId: volumeId || null,
+      title: chapter.title,
+      plotOutline: chapter.plot_outline || chapter.plotOutline || ''
+    });
+    created.push(createdArchitecture);
+  }
+
+  return created;
+}
+
 function parseJsonFields(row) {
   let plain;
   if (row.toJSON) {
@@ -87,5 +123,6 @@ module.exports = {
   findByParentId,
   findById,
   update,
-  delete: deleteArchitecture
+  delete: deleteArchitecture,
+  replaceChapterArchitectures
 };

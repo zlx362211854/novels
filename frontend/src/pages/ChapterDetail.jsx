@@ -50,6 +50,20 @@ function statusLabel(status) {
   return status || '未开始';
 }
 
+function issueTypeLabel(type) {
+  const labels = {
+    character_state_conflict: '人物状态冲突',
+    knowledge_conflict: '信息知晓冲突',
+    timeline_conflict: '时间线冲突',
+    world_rule_conflict: '世界规则冲突',
+    item_state_conflict: '关键物品状态冲突',
+    review_error: '审核服务异常',
+    parse_error: '审核结果解析异常',
+  };
+
+  return labels[type] || type || '未知问题';
+}
+
 function ChapterDetail() {
   const { id } = useParams();
   const feedback = useFeedback();
@@ -65,6 +79,8 @@ function ChapterDetail() {
   const [review, setReview] = useState(null);
   const [versions, setVersions] = useState([]);
   const [regenerating, setRegenerating] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [revising, setRevising] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -82,6 +98,7 @@ function ChapterDetail() {
       setChapter(chapterRes.data);
       setEditContent(chapterRes.data.content || '');
       setEditTitle(chapterRes.data.title || '');
+      setReview(chapterRes.data.review_result || null);
       setTemplates(templateRes.data);
       setVersions(versionRes.data);
 
@@ -139,6 +156,7 @@ function ChapterDetail() {
         content: editContent,
       });
       setChapter(res.data);
+      setReview(res.data.review_result || null);
       await refreshVersions();
       setMode('read');
       feedback.success('章节内容已保存。');
@@ -218,6 +236,7 @@ function ChapterDetail() {
       setChapter(res.data);
       setEditContent(res.data.content || '');
       setEditTitle(res.data.title || '');
+      setReview(res.data.review_result || null);
       await refreshVersions();
       setMode('read');
       feedback.success('章节已按架构重新生成。');
@@ -226,6 +245,49 @@ function ChapterDetail() {
       feedback.error(error.response?.data?.error || '重新生成失败，请稍后再试。');
     } finally {
       setRegenerating(false);
+    }
+  };
+
+  const handleReview = async () => {
+    if (!chapter?.content) {
+      feedback.warning('当前还没有可审阅的正文。');
+      return;
+    }
+
+    setReviewing(true);
+    try {
+      const res = await chapterApi.review(id);
+      setReview(res.data);
+      feedback.success('章节审阅已完成。');
+    } catch (error) {
+      console.error('审阅失败:', error);
+      feedback.error(error.response?.data?.error || '审阅失败，请稍后再试。');
+    } finally {
+      setReviewing(false);
+    }
+  };
+
+  const handleRevise = async () => {
+    if (!review?.issues?.length) {
+      feedback.warning('当前没有可用于修订的问题。');
+      return;
+    }
+
+    setRevising(true);
+    try {
+      const res = await chapterApi.revise(id, review);
+      setChapter(res.data.chapter);
+      setEditContent(res.data.chapter.content || '');
+      setEditTitle(res.data.chapter.title || '');
+      setReview(res.data.review || null);
+      await refreshVersions();
+      setMode('edit');
+      feedback.success('修订稿已应用到当前章节，可在历史版本中回退。');
+    } catch (error) {
+      console.error('生成修订稿失败:', error);
+      feedback.error(error.response?.data?.error || '生成修订稿失败，请稍后再试。');
+    } finally {
+      setRevising(false);
     }
   };
 
@@ -243,6 +305,7 @@ function ChapterDetail() {
       setEditContent(res.data.content || '');
       setEditTitle(res.data.title || chapter.title || '');
       setChapter((current) => ({ ...current, ...res.data }));
+      setReview(res.data.review_result || null);
       setMode('edit');
       feedback.success(`已切换到版本 ${versionNumber}，请确认后保存。`);
     } catch (error) {
@@ -327,19 +390,35 @@ function ChapterDetail() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-semibold text-slate-800">AI 生成草稿</p>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          onClick={handleGenerate}
-                          disabled={generating}
-                          size="sm"
-                        >
-                          <Sparkles className="mr-1.5 size-4" />
-                          {generating ? '生成中...' : '生成'}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>使用选中的模板生成章节内容</TooltipContent>
-                    </Tooltip>
+                    <div className="flex items-center gap-2">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="outline"
+                            onClick={handleReview}
+                            disabled={reviewing || !chapter?.content}
+                            size="sm"
+                          >
+                            <AlertTriangle className="mr-1.5 size-4" />
+                            {reviewing ? '审阅中...' : '重新审阅'}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>基于历史章节和证据重新检查硬逻辑冲突</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            onClick={handleGenerate}
+                            disabled={generating}
+                            size="sm"
+                          >
+                            <Sparkles className="mr-1.5 size-4" />
+                            {generating ? '生成中...' : '生成'}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>使用选中的模板生成章节内容</TooltipContent>
+                      </Tooltip>
+                    </div>
                   </div>
                   <Select
                     value={selectedTemplate?.toString() || ''}
@@ -402,16 +481,29 @@ function ChapterDetail() {
                 )}
                 <AlertTitle className="flex items-center justify-between">
                   <span>AI 审核报告</span>
-                  <Badge
-                    variant={review.score >= 70 ? 'default' : 'secondary'}
-                    className={cn(
-                      review.score >= 70
-                        ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
-                        : 'bg-amber-100 text-amber-700 hover:bg-amber-100'
-                    )}
-                  >
-                    评分 {review.score}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    {review.issues?.length ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleRevise}
+                        disabled={revising}
+                      >
+                        <FileText className="mr-1.5 size-4" />
+                        {revising ? '处理中...' : '生成修订稿'}
+                      </Button>
+                    ) : null}
+                    <Badge
+                      variant={review.score >= 70 ? 'default' : 'secondary'}
+                      className={cn(
+                        review.score >= 70
+                          ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
+                          : 'bg-amber-100 text-amber-700 hover:bg-amber-100'
+                      )}
+                    >
+                      评分 {review.score}
+                    </Badge>
+                  </div>
                 </AlertTitle>
                 <AlertDescription>
                   {review.issues?.length ? (
@@ -421,8 +513,32 @@ function ChapterDetail() {
                           key={`${issue.type}-${index}`}
                           className="rounded-lg bg-white/80 px-3 py-2"
                         >
-                          <span className="font-semibold text-rose-600">{issue.type}</span>
-                          <span className="ml-2">{issue.description}</span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-rose-600">{issueTypeLabel(issue.type)}</span>
+                            {issue.severity ? (
+                              <Badge variant="outline">{issue.severity}</Badge>
+                            ) : null}
+                            {issue.historicalChapterNumber ? (
+                              <Badge variant="outline">第 {issue.historicalChapterNumber} 章</Badge>
+                            ) : null}
+                          </div>
+                          <p className="mt-1">{issue.description}</p>
+                          {issue.currentEvidence ? (
+                            <div className="mt-2 rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-slate-700">
+                              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">
+                                当前章证据
+                              </p>
+                              <p className="mt-1">{issue.currentEvidence}</p>
+                            </div>
+                          ) : null}
+                          {issue.historicalEvidence ? (
+                            <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-slate-700">
+                              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
+                                历史章证据
+                              </p>
+                              <p className="mt-1">{issue.historicalEvidence}</p>
+                            </div>
+                          ) : null}
                           {issue.suggestion ? (
                             <p className="mt-1 text-slate-500">建议：{issue.suggestion}</p>
                           ) : null}
@@ -434,9 +550,21 @@ function ChapterDetail() {
                       这次生成没有发现明显问题，可以直接进入人工润色。
                     </p>
                   )}
+                  {review.notes?.length ? (
+                    <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-3 text-sm text-slate-600">
+                      <div className="flex items-center gap-2 font-medium text-slate-800">
+                        <Info className="size-4" />
+                        架构提示
+                      </div>
+                      {review.notes.map((note, index) => (
+                        <p key={`${note}-${index}`}>{note}</p>
+                      ))}
+                    </div>
+                  ) : null}
                 </AlertDescription>
               </Alert>
             ) : null}
+
           </div>
         </SectionCard>
 

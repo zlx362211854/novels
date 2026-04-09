@@ -320,17 +320,12 @@ function ArchitectureManager() {
     setGeneratingContent(chapterArch.id);
     try {
       const res = await architectureApi.generateChapterContent(id, chapterArch.id);
-      const chapterNumber = getNextChapterNumber(chapterArch.id);
+      const generatedChapter = res.data?.chapter;
+      if (!generatedChapter) {
+        throw new Error('生成接口未返回章节数据');
+      }
 
-      await chapterApi.create(id, {
-        architectureId: chapterArch.id,
-        chapterNumber: chapterNumber,
-        title: chapterArch.title || '未命名章节',
-        content: res.data.content,
-        status: 'generated',
-      });
-
-      feedback.success(`「${chapterArch.title}」已生成并保存为第 ${chapterNumber} 章。`);
+      feedback.success(`「${chapterArch.title}」已生成并保存为第 ${generatedChapter.chapter_number} 章。`);
       loadData();
     } catch (error) {
       console.error('生成章节正文失败:', error);
@@ -650,8 +645,8 @@ function ArchitectureManager() {
                               if (volumeChapterArchs.length > 0) {
                                 const confirmed = await feedback.confirm({
                                   title: `重新生成「${volume.title}」的章架构？`,
-                                  message: `该卷已有 ${volumeChapterArchs.length} 条章架构，重新生成将覆盖原有内容。`,
-                                  note: '建议先确认是否需要保留现有架构。',
+                                  message: `该卷已有 ${volumeChapterArchs.length} 条章架构，重新生成会删除该卷下现有章架构，以及这些章架构关联的正文和历史记录。`,
+                                  note: '这是不可恢复的批量替换操作，请先确认不需要保留当前正文。',
                                   confirmText: '确认重新生成',
                                   cancelText: '取消',
                                   variant: 'danger',

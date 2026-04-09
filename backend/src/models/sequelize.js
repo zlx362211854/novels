@@ -122,12 +122,71 @@ const Chapter = sequelize.define('Chapter', {
   content: {
     type: DataTypes.TEXT
   },
+  review_result: {
+    type: DataTypes.TEXT
+  },
   status: {
     type: DataTypes.STRING,
     defaultValue: 'draft'
   }
 }, {
   tableName: 'chapters',
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at'
+});
+
+const ChapterMemory = sequelize.define('ChapterMemory', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  novel_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'novels',
+      key: 'id'
+    }
+  },
+  chapter_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    unique: true,
+    references: {
+      model: 'chapters',
+      key: 'id'
+    }
+  },
+  chapter_number: {
+    type: DataTypes.INTEGER,
+    allowNull: false
+  },
+  summary: {
+    type: DataTypes.TEXT
+  },
+  entities: {
+    type: DataTypes.TEXT
+  },
+  facts: {
+    type: DataTypes.TEXT
+  },
+  state_changes: {
+    type: DataTypes.TEXT
+  },
+  open_threads: {
+    type: DataTypes.TEXT
+  },
+  source_excerpt_map: {
+    type: DataTypes.TEXT
+  },
+  content_hash: {
+    type: DataTypes.STRING,
+    allowNull: false
+  }
+}, {
+  tableName: 'chapter_memories',
   timestamps: true,
   createdAt: 'created_at',
   updatedAt: 'updated_at'
@@ -269,6 +328,12 @@ Architecture.belongsTo(Architecture, { foreignKey: 'parent_id', as: 'parent' });
 Novel.hasMany(Chapter, { foreignKey: 'novel_id', as: 'chapters', onDelete: 'CASCADE' });
 Chapter.belongsTo(Novel, { foreignKey: 'novel_id', as: 'novel' });
 
+Novel.hasMany(ChapterMemory, { foreignKey: 'novel_id', as: 'chapterMemories', onDelete: 'CASCADE' });
+ChapterMemory.belongsTo(Novel, { foreignKey: 'novel_id', as: 'novel' });
+
+Chapter.hasOne(ChapterMemory, { foreignKey: 'chapter_id', as: 'memory', onDelete: 'CASCADE' });
+ChapterMemory.belongsTo(Chapter, { foreignKey: 'chapter_id', as: 'chapter' });
+
 Chapter.hasMany(ChapterVersion, { foreignKey: 'chapter_id', as: 'versions', onDelete: 'CASCADE' });
 ChapterVersion.belongsTo(Chapter, { foreignKey: 'chapter_id', as: 'chapter' });
 
@@ -283,6 +348,7 @@ Chapter.hasMany(ScheduledTask, { foreignKey: 'chapter_id', as: 'tasks' });
 
 async function initDatabase() {
   await sequelize.sync({ force: false, hooks: false });
+  await ensureLegacySchema();
 
   const defaultTemplate = await PromptTemplate.findOne({ where: { is_default: 1 } });
   if (!defaultTemplate) {
@@ -318,11 +384,24 @@ async function initDatabase() {
   console.log('数据库初始化完成 (Sequelize)');
 }
 
+async function ensureLegacySchema() {
+  const queryInterface = sequelize.getQueryInterface();
+  const chapterColumns = await queryInterface.describeTable('chapters');
+
+  if (!chapterColumns.review_result) {
+    await queryInterface.addColumn('chapters', 'review_result', {
+      type: DataTypes.TEXT,
+      allowNull: true
+    });
+  }
+}
+
 module.exports = {
   sequelize,
   Novel,
   Architecture,
   Chapter,
+  ChapterMemory,
   ChapterVersion,
   ScheduledTask,
   SystemConfig,

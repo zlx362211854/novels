@@ -48,6 +48,8 @@ export const chapterApi = {
   delete: (id) => api.delete(`/chapters/${id}`),
   generate: (id, templateId) => api.post(`/chapters/${id}/generate`, { templateId }),
   regenerate: (id) => api.post(`/chapters/${id}/regenerate`),
+  review: (id) => api.post(`/chapters/${id}/review`),
+  revise: (id, reviewResult) => api.post(`/chapters/${id}/revise`, { reviewResult }),
   getVersions: (id) => api.get(`/chapters/${id}/versions`),
   restoreVersion: (id, version) => api.post(`/chapters/${id}/restore/${version}`),
 };

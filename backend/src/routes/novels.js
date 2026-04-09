@@ -70,13 +70,16 @@ router.delete('/:id', async (req, res) => {
 router.post('/:id/chapters', async (req, res) => {
   try {
     const { architectureId, chapterNumber, title, content, status } = req.body;
-    if (!chapterNumber) {
-      return res.status(400).json({ error: '章节序号不能为空' });
-    }
+    const novelId = req.params.id;
+
+    const existingChapters = await chapterService.findByNovelId(novelId);
+    const maxChapterNumber = existingChapters.reduce((max, ch) => Math.max(max, ch.chapter_number || 0), 0);
+    const calculatedChapterNumber = chapterNumber || maxChapterNumber + 1;
+
     const chapter = await chapterService.create({
-      novelId: req.params.id,
+      novelId,
       architectureId,
-      chapterNumber,
+      chapterNumber: calculatedChapterNumber,
       title,
       content,
       status
@@ -121,12 +124,20 @@ router.post('/:id/generate-chapter-content', async (req, res) => {
 
     let chapter = await Chapter.findOne({ where: { architecture_id: chapterArchId } });
     if (!chapter) {
+      // 计算同卷内的章节序号，而非使用 architecture 的数据库 ID
+      const siblings = await Architecture.findAll({
+        where: { parent_id: chapterArch.parent_id, level: 'chapter' },
+        order: [['id', 'ASC']]
+      });
+      const indexInVolume = siblings.findIndex(s => s.id === chapterArch.id);
+      const chapterNumber = indexInVolume >= 0 ? indexInVolume + 1 : 1;
+
       chapter = await chapterService.create({
         novelId: novelId,
         architectureId: chapterArchId,
         title: chapterArch.title,
-        order: chapterArch.id,
-        chapterNumber: chapterArch.id,
+        order: chapterNumber,
+        chapterNumber: chapterNumber,
         status: 'pending'
       });
     }
@@ -142,19 +153,12 @@ router.post('/:id/generate-chapter-content', async (req, res) => {
 router.post('/:id/batch-create-chapter-architectures', async (req, res) => {
   try {
     const { volumeId, chapters } = req.body;
-    const novelId = req.params.id;
-    const created = [];
-    for (const ch of chapters) {
-      const createdCh = await architectureService.create({
-        novelId: novelId,
-        level: 'chapter',
-        parentId: volumeId || null,
-        title: ch.title,
-        plotOutline: ch.plot_outline || ch.plotOutline || ''
-      });
-      created.push(createdCh);
-    }
-    res.json(created);
+    const replaced = await architectureService.replaceChapterArchitectures(
+      req.params.id,
+      volumeId,
+      chapters || []
+    );
+    res.json(replaced);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -360,13 +364,17 @@ router.get('/:id/volumes/:volumeId/chapters', async (req, res) => {
 router.post('/:id/volumes/:volumeId/chapters', async (req, res) => {
   try {
     const { architectureId, chapterNumber, title, content, status } = req.body;
-    if (!chapterNumber) {
-      return res.status(400).json({ error: '章节序号不能为空' });
-    }
+    const novelId = req.params.id;
+    const volumeId = req.params.volumeId;
+
+    const existingChapters = await chapterService.findByNovelId(novelId);
+    const maxChapterNumber = existingChapters.reduce((max, ch) => Math.max(max, ch.chapter_number || 0), 0);
+    const calculatedChapterNumber = chapterNumber || maxChapterNumber + 1;
+
     const chapter = await chapterService.create({
-      novelId: req.params.id,
-      architectureId: architectureId || req.params.volumeId,
-      chapterNumber,
+      novelId,
+      architectureId: architectureId || volumeId,
+      chapterNumber: calculatedChapterNumber,
       title,
       content,
       status
@@ -387,12 +395,17 @@ router.post('/:id/volumes/:volumeId/generate-chapters', async (req, res) => {
   });
   try {
     const { startNumber } = req.body;
+    const novelId = req.params.id;
     const chapterArchs = await architectureService.findByParentId(req.params.volumeId);
+
+    const existingChapters = await chapterService.findByNovelId(novelId);
+    const maxChapterNumber = existingChapters.reduce((max, ch) => Math.max(max, ch.chapter_number || 0), 0);
+    let currentNumber = startNumber || maxChapterNumber + 1;
+
     const chapters = [];
-    let currentNumber = startNumber || 1;
     for (const arch of chapterArchs) {
       const chapter = await chapterService.create({
-        novelId: req.params.id,
+        novelId,
         architectureId: arch.id,
         chapterNumber: currentNumber,
         title: arch.title,
@@ -469,27 +482,6 @@ router.post('/:id/apply-review', async (req, res) => {
     }
     const updatedArchs = await architectureService.findByNovelId(novelId);
     res.json(updatedArchs);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.post('/:id/batch-create-chapter-architectures', async (req, res) => {
-  try {
-    const { volumeId, chapters } = req.body;
-    const novelId = req.params.id;
-    const created = [];
-    for (const ch of chapters) {
-      const createdCh = await architectureService.create({
-        novelId: novelId,
-        level: 'chapter',
-        parentId: volumeId || null,
-        title: ch.title,
-        plotOutline: ch.plot_outline || ch.plotOutline || ''
-      });
-      created.push(createdCh);
-    }
-    res.json(created);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
