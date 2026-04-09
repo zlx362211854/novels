@@ -1,48 +1,43 @@
-const db = require('../config/database');
+const { Novel } = require('../models/sequelize');
 
-function create(data) {
-  const stmt = db.prepare(`
-    INSERT INTO novels (title, description, genre)
-    VALUES (?, ?, ?)
-  `);
-  const result = stmt.run(data.title, data.description || null, data.genre || null);
-  return findById(result.lastInsertRowid);
+async function create(data) {
+  const novel = await Novel.create({
+    title: data.title,
+    description: data.description || null,
+    genre: data.genre || null
+  });
+  return novel;
 }
 
-function findAll() {
-  const stmt = db.prepare(`
-    SELECT * FROM novels ORDER BY updated_at DESC
-  `);
-  return stmt.all();
+async function findAll() {
+  const novels = await Novel.findAll({
+    order: [['updated_at', 'DESC']]
+  });
+  return novels;
 }
 
-function findById(id) {
-  const stmt = db.prepare('SELECT * FROM novels WHERE id = ?');
-  return stmt.get(id);
+async function findById(id) {
+  const novel = await Novel.findByPk(id);
+  return novel;
 }
 
-function update(id, data) {
-  const novel = findById(id);
+async function update(id, data) {
+  const novel = await Novel.findByPk(id);
   if (!novel) return null;
 
-  const stmt = db.prepare(`
-    UPDATE novels 
-    SET title = COALESCE(?, title),
-        description = COALESCE(?, description),
-        genre = COALESCE(?, genre),
-        updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `);
-  stmt.run(data.title, data.description, data.genre, id);
-  return findById(id);
+  if (data.title !== undefined) novel.title = data.title;
+  if (data.description !== undefined) novel.description = data.description;
+  if (data.genre !== undefined) novel.genre = data.genre;
+
+  await novel.save();
+  return novel;
 }
 
-function deleteNovel(id) {
-  const novel = findById(id);
+async function deleteNovel(id) {
+  const novel = await Novel.findByPk(id);
   if (!novel) return false;
 
-  const stmt = db.prepare('DELETE FROM novels WHERE id = ?');
-  stmt.run(id);
+  await novel.destroy();
   return true;
 }
 

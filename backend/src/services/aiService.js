@@ -1,10 +1,10 @@
-const db = require('../config/database');
+const { Novel, Architecture, Chapter, SystemConfig, PromptTemplate } = require('../models/sequelize');
 
 async function generateChapter(params, signal) {
   const { novel, chapter, architecture, templateId } = params;
 
-  const config = getConfig();
-  const template = getTemplate(templateId);
+  const config = await getConfig();
+  const template = await getTemplate(templateId);
 
   const prompt = buildPrompt(template, { novel, chapter, architecture });
 
@@ -37,26 +37,25 @@ async function generateChapterFromArchitecture(params, signal) {
   const { novelId, chapterArchId } = params;
   console.log('参数:', { novelId, chapterArchId });
 
-  const novelStmt = db.prepare('SELECT * FROM novels WHERE id = ?');
-  const novel = novelStmt.get(novelId);
+  const novel = await Novel.findByPk(novelId);
   if (!novel) throw new Error('小说不存在');
   console.log('小说:', novel.title);
 
-  const archStmt = db.prepare('SELECT * FROM architectures WHERE id = ?');
-  const chapterArch = archStmt.get(chapterArchId);
+  const chapterArch = await Architecture.findByPk(chapterArchId);
   if (!chapterArch) throw new Error('章架构不存在');
   console.log('章节架构:', chapterArch.title);
 
-  const fullArchStmt = db.prepare('SELECT * FROM architectures WHERE novel_id = ? AND level = ?');
-  const fullArch = fullArchStmt.get(novelId, 'full');
+  const fullArch = await Architecture.findOne({
+    where: { novel_id: novelId, level: 'full' }
+  });
 
-  const volumeArch = chapterArch.parent_id ? archStmt.get(chapterArch.parent_id) : null;
+  const volumeArch = chapterArch.parent_id ? await Architecture.findByPk(chapterArch.parent_id) : null;
 
-  const prevChapterContent = getPreviousChapterContent(chapterArchId, chapterArch.parent_id);
+  const prevChapterContent = await getPreviousChapterContent(chapterArchId, chapterArch.parent_id);
 
   const prompt = buildChapterPrompt(novel, chapterArch, volumeArch, fullArch, prevChapterContent);
 
-  const config = getConfig();
+  const config = await getConfig();
   console.log('config.aiModel:', config.aiModel);
   const aiClient = getAIClient(config, signal);
 
@@ -79,27 +78,35 @@ async function generateChapterFromArchitecture(params, signal) {
   throw new Error(`AI生成失败: ${lastError.message}`);
 }
 
-function getPreviousChapterContent(currentArchId, parentId) {
+async function getPreviousChapterContent(currentArchId, parentId) {
   if (!parentId) return null;
 
-  const siblingStmt = db.prepare(`
-    SELECT a.id
-    FROM architectures a
-    WHERE a.parent_id = ? AND a.level = 'chapter' AND a.id < ?
-    ORDER BY a.id DESC
-    LIMIT 1
-  `);
-  const prevArch = siblingStmt.get(parentId, currentArchId);
+  const prevArch = await Architecture.findOne({
+    where: { parent_id: parentId, level: 'chapter' },
+    order: [['id', 'DESC']]
+  });
 
-  if (!prevArch) return null;
+  if (!prevArch || prevArch.id >= currentArchId) {
+    const alternatives = await Architecture.findAll({
+      where: { parent_id: parentId, level: 'chapter' },
+      order: [['id', 'DESC']]
+    });
+    if (alternatives.length > 0) {
+      const targetId = alternatives[0].id;
+      if (targetId < currentArchId) {
+        return await getChapterByArchitectureId(targetId);
+      }
+    }
+    return null;
+  }
 
-  const chapterStmt = db.prepare(`
-    SELECT c.content, c.title
-    FROM chapters c
-    WHERE c.architecture_id = ?
-    LIMIT 1
-  `);
-  const prevChapter = chapterStmt.get(prevArch.id);
+  return await getChapterByArchitectureId(prevArch.id);
+}
+
+async function getChapterByArchitectureId(archId) {
+  const prevChapter = await Chapter.findOne({
+    where: { architecture_id: archId }
+  });
 
   if (!prevChapter || !prevChapter.content) return null;
 
@@ -218,9 +225,8 @@ ${chapterInfo}
 请开始撰写本章正文：`;
 }
 
-function getConfig() {
-  const stmt = db.prepare('SELECT * FROM system_configs');
-  const configs = stmt.all();
+async function getConfig() {
+  const configs = await SystemConfig.findAll();
 
   const configMap = {};
   configs.forEach(c => {
@@ -240,14 +246,12 @@ function getConfig() {
   };
 }
 
-function getTemplate(templateId) {
+async function getTemplate(templateId) {
   if (templateId) {
-    const stmt = db.prepare('SELECT * FROM prompt_templates WHERE id = ?');
-    return stmt.get(templateId);
+    return await PromptTemplate.findByPk(templateId);
   }
 
-  const stmt = db.prepare('SELECT * FROM prompt_templates WHERE is_default = 1');
-  return stmt.get();
+  return await PromptTemplate.findOne({ where: { is_default: 1 } });
 }
 
 function buildPrompt(template, params) {

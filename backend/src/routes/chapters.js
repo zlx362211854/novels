@@ -2,11 +2,11 @@ const express = require('express');
 const router = express.Router();
 const chapterService = require('../services/chapterService');
 const aiService = require('../services/aiService');
-const db = require('../config/database');
+const { Novel } = require('../models/sequelize');
 
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const chapter = chapterService.findById(req.params.id);
+    const chapter = await chapterService.findById(req.params.id);
     if (!chapter) {
       return res.status(404).json({ error: '章节不存在' });
     }
@@ -16,10 +16,10 @@ router.get('/:id', (req, res) => {
   }
 });
 
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const { title, content, status, architectureId } = req.body;
-    const chapter = chapterService.update(req.params.id, {
+    const chapter = await chapterService.update(req.params.id, {
       title,
       content,
       status,
@@ -34,9 +34,9 @@ router.put('/:id', (req, res) => {
   }
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    const deleted = chapterService.delete(req.params.id);
+    const deleted = await chapterService.delete(req.params.id);
     if (!deleted) {
       return res.status(404).json({ error: '章节不存在' });
     }
@@ -75,7 +75,7 @@ router.post('/:id/regenerate', async (req, res) => {
     }
   });
   try {
-    const chapter = chapterService.findById(req.params.id);
+    const chapter = await chapterService.findById(req.params.id);
     if (!chapter) {
       return res.status(404).json({ error: '章节不存在' });
     }
@@ -84,8 +84,7 @@ router.post('/:id/regenerate', async (req, res) => {
       return res.status(400).json({ error: '该章节没有关联的架构，无法重新生成' });
     }
 
-    const novelStmt = db.prepare('SELECT * FROM novels WHERE id = ?');
-    const novel = novelStmt.get(chapter.novel_id);
+    const novel = await Novel.findByPk(chapter.novel_id);
     if (!novel) {
       return res.status(404).json({ error: '小说不存在' });
     }
@@ -97,7 +96,7 @@ router.post('/:id/regenerate', async (req, res) => {
     }, ac.signal);
     console.log('AI生成完成，内容长度:', content?.length);
 
-    const updatedChapter = chapterService.update(req.params.id, {
+    const updatedChapter = await chapterService.update(req.params.id, {
       content,
       status: 'generated'
     });
@@ -109,20 +108,20 @@ router.post('/:id/regenerate', async (req, res) => {
   }
 });
 
-router.get('/:id/versions', (req, res) => {
+router.get('/:id/versions', async (req, res) => {
   try {
-    const versions = chapterService.getVersions(req.params.id);
+    const versions = await chapterService.getVersions(req.params.id);
     res.json(versions);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-router.post('/:id/restore/:version', (req, res) => {
+router.post('/:id/restore/:versionNumber', async (req, res) => {
   try {
-    const chapter = chapterService.restoreVersion(req.params.id, parseInt(req.params.version));
+    const chapter = await chapterService.restoreVersion(req.params.id, parseInt(req.params.versionNumber));
     if (!chapter) {
-      return res.status(404).json({ error: '章节或版本不存在' });
+      return res.status(404).json({ error: '版本不存在' });
     }
     res.json(chapter);
   } catch (error) {

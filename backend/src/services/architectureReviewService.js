@@ -1,16 +1,11 @@
-const db = require('../config/database');
-const { getAIClient, getConfig, sleep } = require('./aiService');
+const { Novel, Architecture, SystemConfig } = require('../models/sequelize');
+const { getAIClient, sleep } = require('./aiService');
 
-/**
- * 从文本中提取 JSON 对象
- * 支持多种格式：代码块、纯 JSON、带前后缀的 JSON
- */
 function extractJson(content) {
     if (!content || typeof content !== 'string') {
         throw new Error('内容为空或格式不正确');
     }
 
-    // 尝试匹配 ```json 代码块
     const codeBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (codeBlockMatch) {
         try {
@@ -20,8 +15,6 @@ function extractJson(content) {
         }
     }
 
-    // 尝试找到最外层的 JSON 对象
-    // 通过计数花括号来找到匹配的 JSON
     let startIdx = -1;
     let braceCount = 0;
     let inString = false;
@@ -58,7 +51,6 @@ function extractJson(content) {
                         const jsonStr = content.substring(startIdx, i + 1);
                         return JSON.parse(jsonStr);
                     } catch (e) {
-                        // 继续寻找下一个可能的 JSON
                         startIdx = -1;
                     }
                 }
@@ -66,7 +58,6 @@ function extractJson(content) {
         }
     }
 
-    // 如果上面的方法都失败了，尝试直接解析整个内容
     try {
         return JSON.parse(content.trim());
     } catch (e) {
@@ -116,7 +107,6 @@ function buildReviewPrompt(novel, architectures) {
     if (chapters.length > 0) {
         prompt += `## 章架构（共${chapters.length}章）\n\n`;
 
-        // 按卷分组
         const chaptersByVolume = {};
         chapters.forEach(ch => {
             const volId = ch.parent_id || 'none';
@@ -168,9 +158,6 @@ function buildReviewPrompt(novel, architectures) {
     return prompt;
 }
 
-/**
- * 构建全本架构重写 prompt（不含卷和章节）
- */
 function buildFullArchRewritePrompt(novel, fullArch, volumes, reviewResult, userPrompt) {
     let prompt = `你是一位资深小说编辑。请根据审阅意见${userPrompt ? '和用户的额外要求' : ''}，优化重写小说的全本架构和各卷架构。
 
@@ -239,9 +226,6 @@ function buildFullArchRewritePrompt(novel, fullArch, volumes, reviewResult, user
     return prompt;
 }
 
-/**
- * 构建单卷章节重写 prompt
- */
 function buildVolumeChaptersRewritePrompt(novel, fullArchResult, volume, chapters, reviewResult, userPrompt) {
     let prompt = `你是一位资深小说编辑。请根据审阅意见${userPrompt ? '和用户的额外要求' : ''}，优化重写本卷下的所有章节。
 
@@ -260,7 +244,6 @@ function buildVolumeChaptersRewritePrompt(novel, fullArchResult, volume, chapter
 ## 审阅意见中与本卷相关的问题
 `;
 
-    // 筛选与本卷相关的审阅问题
     const volumeIssues = reviewResult.issues.filter(issue => {
         const loc = (issue.location || '').toLowerCase();
         return loc.includes(volume.title) || loc === '整体';
@@ -308,20 +291,40 @@ function buildVolumeChaptersRewritePrompt(novel, fullArchResult, volume, chapter
     return prompt;
 }
 
+async function getConfig() {
+    const configs = await SystemConfig.findAll();
+    const configMap = {};
+    configs.forEach(c => {
+        try {
+            configMap[c.config_key] = JSON.parse(c.config_value);
+        } catch {
+            configMap[c.config_key] = c.config_value;
+        }
+    });
+
+    return {
+        aiModel: configMap.aiModel || process.env.DEFAULT_AI_MODEL || 'deepseek',
+        zhipuApiKey: configMap.zhipuApiKey || process.env.ZHIPU_API_KEY,
+        zhipuApiUrl: process.env.ZHIPU_API_URL,
+        deepseekApiKey: configMap.deepseekApiKey || process.env.DEEPSEEK_API_KEY,
+        deepseekApiUrl: process.env.DEEPSEEK_API_URL
+    };
+}
+
 async function reviewArchitectures(novelId, signal) {
-    const novelStmt = db.prepare('SELECT * FROM novels WHERE id = ?');
-    const novel = novelStmt.get(novelId);
+    const novel = await Novel.findByPk(novelId);
     if (!novel) throw new Error('小说不存在');
 
-    const archStmt = db.prepare('SELECT * FROM architectures WHERE novel_id = ?');
-    const architectures = archStmt.all(novelId);
+    const architectures = await Architecture.findAll({
+        where: { novel_id: novelId }
+    });
 
     if (architectures.length === 0) {
         throw new Error('该小说还没有任何架构');
     }
 
     const prompt = buildReviewPrompt(novel, architectures);
-    const config = getConfig();
+    const config = await getConfig();
     const aiClient = getAIClient(config, signal, { jsonMode: true });
 
     let lastError = null;
@@ -329,8 +332,6 @@ async function reviewArchitectures(novelId, signal) {
         if (signal?.aborted) throw Object.assign(new Error('请求已取消'), { name: 'AbortError' });
         try {
             const content = await aiClient.generate(prompt);
-
-            // 提取JSON - 使用更健壮的方法
             const reviewResult = extractJson(content);
             return reviewResult;
         } catch (error) {
@@ -346,9 +347,6 @@ async function reviewArchitectures(novelId, signal) {
     throw new Error(`架构审阅失败: ${lastError.message}`);
 }
 
-/**
- * 带重试的单次 AI 调用
- */
 async function callAIWithRetry(aiClient, prompt, label, signal, maxRetries = 3) {
     let lastError = null;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -369,35 +367,32 @@ async function callAIWithRetry(aiClient, prompt, label, signal, maxRetries = 3) 
 }
 
 async function rewriteArchitectures(novelId, reviewResult, userPrompt, signal) {
-    const novelStmt = db.prepare('SELECT * FROM novels WHERE id = ?');
-    const novel = novelStmt.get(novelId);
+    const novel = await Novel.findByPk(novelId);
     if (!novel) throw new Error('小说不存在');
 
-    const archStmt = db.prepare('SELECT * FROM architectures WHERE novel_id = ?');
-    const architectures = archStmt.all(novelId);
+    const architectures = await Architecture.findAll({
+        where: { novel_id: novelId }
+    });
 
     const fullArch = architectures.find(a => a.level === 'full');
     const volumes = architectures.filter(a => a.level === 'volume').sort((a, b) => a.id - b.id);
     const chapters = architectures.filter(a => a.level === 'chapter').sort((a, b) => a.id - b.id);
 
-    const config = getConfig();
+    const config = await getConfig();
     const aiClient = getAIClient(config, signal, { jsonMode: true });
 
-    // ===== 第1步：重写全本架构 + 各卷架构 =====
     console.log('[rewrite] 第1步：重写全本架构和卷架构...');
     const fullArchPrompt = buildFullArchRewritePrompt(novel, fullArch, volumes, reviewResult, userPrompt);
     const fullResult = await callAIWithRetry(aiClient, fullArchPrompt, '全本架构重写', signal);
 
     console.log(`[rewrite] 全本架构重写完成，共 ${fullResult.volumes?.length || 0} 卷`);
 
-    // ===== 第2步：逐卷重写章节 =====
     const volumesWithChapters = [];
 
     for (let i = 0; i < (fullResult.volumes || []).length; i++) {
         if (signal?.aborted) throw Object.assign(new Error('请求已取消'), { name: 'AbortError' });
 
         const rewrittenVolume = fullResult.volumes[i];
-        // 找到该卷对应的原始章节
         const originalVolume = volumes.find(v => String(v.id) === String(rewrittenVolume.id));
         const volumeChapters = originalVolume
             ? chapters.filter(ch => ch.parent_id === originalVolume.id)
@@ -424,7 +419,6 @@ async function rewriteArchitectures(novelId, reviewResult, userPrompt, signal) {
         console.log(`[rewrite] 第${i + 1}卷章节重写完成，共 ${chapterResult.chapters?.length || 0} 章`);
     }
 
-    // ===== 合并最终结果 =====
     const finalResult = {
         fullArchitecture: fullResult.fullArchitecture,
         volumes: volumesWithChapters

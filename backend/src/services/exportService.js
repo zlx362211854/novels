@@ -1,10 +1,9 @@
-const db = require('../config/database');
+const { Novel, Architecture, Chapter } = require('../models/sequelize');
 
-function exportToMarkdown(params) {
+async function exportToMarkdown(params) {
   const { novelId, scope, volumeId } = params;
 
-  const novelStmt = db.prepare('SELECT * FROM novels WHERE id = ?');
-  const novel = novelStmt.get(novelId);
+  const novel = await Novel.findByPk(novelId);
   if (!novel) throw new Error('小说不存在');
 
   let markdown = `# ${novel.title}\n\n`;
@@ -16,11 +15,15 @@ function exportToMarkdown(params) {
   markdown += `类型: ${novel.genre || '未分类'}\n\n`;
   markdown += `---\n\n`;
 
-  const archStmt = db.prepare('SELECT * FROM architectures WHERE novel_id = ? ORDER BY id');
-  const architectures = archStmt.all(novelId);
+  const architectures = await Architecture.findAll({
+    where: { novel_id: novelId },
+    order: [['id', 'ASC']]
+  });
 
-  const chapterStmt = db.prepare('SELECT * FROM chapters WHERE novel_id = ? ORDER BY chapter_number');
-  const chapters = chapterStmt.all(novelId);
+  const chapters = await Chapter.findAll({
+    where: { novel_id: novelId },
+    order: [['chapter_number', 'ASC']]
+  });
 
   const fullArch = architectures.find(a => a.level === 'full');
   if (fullArch) {

@@ -2,9 +2,9 @@ const express = require('express');
 const router = express.Router();
 const architectureService = require('../services/architectureService');
 
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const architecture = architectureService.findById(req.params.id);
+    const architecture = await architectureService.findById(req.params.id);
     if (!architecture) {
       return res.status(404).json({ error: '架构不存在' });
     }
@@ -14,10 +14,10 @@ router.get('/:id', (req, res) => {
   }
 });
 
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const { title, plotOutline, characters, worldSetting, emotionalTone, metadata } = req.body;
-    const architecture = architectureService.update(req.params.id, {
+    const architecture = await architectureService.update(req.params.id, {
       title,
       plotOutline,
       characters,
@@ -34,9 +34,9 @@ router.put('/:id', (req, res) => {
   }
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    const deleted = architectureService.delete(req.params.id);
+    const deleted = await architectureService.delete(req.params.id);
     if (!deleted) {
       return res.status(404).json({ error: '架构不存在' });
     }

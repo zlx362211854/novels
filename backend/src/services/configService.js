@@ -1,8 +1,7 @@
-const db = require('../config/database');
+const { SystemConfig } = require('../models/sequelize');
 
-function findAll() {
-  const stmt = db.prepare('SELECT * FROM system_configs');
-  const configs = stmt.all();
+async function findAll() {
+  const configs = await SystemConfig.findAll();
   const result = {};
   configs.forEach(c => {
     try {
@@ -14,9 +13,8 @@ function findAll() {
   return result;
 }
 
-function findByKey(key) {
-  const stmt = db.prepare('SELECT * FROM system_configs WHERE config_key = ?');
-  const config = stmt.get(key);
+async function findByKey(key) {
+  const config = await SystemConfig.findOne({ where: { config_key: key } });
   if (!config) return null;
   try {
     return {
@@ -33,24 +31,21 @@ function findByKey(key) {
   }
 }
 
-function upsert(key, value, description) {
+async function upsert(key, value, description) {
   const valueStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
 
-  const existing = db.prepare('SELECT id FROM system_configs WHERE config_key = ?').get(key);
+  const existing = await SystemConfig.findOne({ where: { config_key: key } });
 
   if (existing) {
-    const stmt = db.prepare(`
-      UPDATE system_configs 
-      SET config_value = ?, description = COALESCE(?, description), updated_at = CURRENT_TIMESTAMP
-      WHERE config_key = ?
-    `);
-    stmt.run(valueStr, description, key);
+    existing.config_value = valueStr;
+    if (description !== undefined) existing.description = description;
+    await existing.save();
   } else {
-    const stmt = db.prepare(`
-      INSERT INTO system_configs (config_key, config_value, description)
-      VALUES (?, ?, ?)
-    `);
-    stmt.run(key, valueStr, description);
+    await SystemConfig.create({
+      config_key: key,
+      config_value: valueStr,
+      description: description
+    });
   }
 
   return findByKey(key);

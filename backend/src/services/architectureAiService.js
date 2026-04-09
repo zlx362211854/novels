@@ -1,16 +1,14 @@
-const db = require('../config/database');
+const { Novel, Architecture, SystemConfig } = require('../models/sequelize');
 
 async function generateArchitecture(params, signal) {
   const { novelId, level, parentId, title } = params;
 
-  const novelStmt = db.prepare('SELECT * FROM novels WHERE id = ?');
-  const novel = novelStmt.get(novelId);
+  const novel = await Novel.findByPk(novelId);
   if (!novel) throw new Error('小说不存在');
 
   let parentContext = '';
   if (parentId) {
-    const parentStmt = db.prepare('SELECT * FROM architectures WHERE id = ?');
-    const parent = parentStmt.get(parentId);
+    const parent = await Architecture.findByPk(parentId);
     if (parent) {
       parentContext = `
 ## 父级架构信息
@@ -25,7 +23,7 @@ ${parent.world_setting ? `世界观: ${parent.world_setting}` : ''}
 
   const prompt = buildPrompt(novel, level, title, parentContext);
 
-  const config = getConfig();
+  const config = await getConfig();
   const aiClient = getAIClient(config, signal);
 
   let lastError = null;
@@ -50,20 +48,19 @@ ${parent.world_setting ? `世界观: ${parent.world_setting}` : ''}
 async function generateChapterArchitectures(params, signal) {
   const { novelId, volumeId } = params;
 
-  const novelStmt = db.prepare('SELECT * FROM novels WHERE id = ?');
-  const novel = novelStmt.get(novelId);
+  const novel = await Novel.findByPk(novelId);
   if (!novel) throw new Error('小说不存在');
 
-  const volumeStmt = db.prepare('SELECT * FROM architectures WHERE id = ?');
-  const volume = volumeStmt.get(volumeId);
+  const volume = await Architecture.findByPk(volumeId);
   if (!volume) throw new Error('卷架构不存在');
 
-  const fullArchStmt = db.prepare('SELECT * FROM architectures WHERE novel_id = ? AND level = ?');
-  const fullArch = fullArchStmt.get(novelId, 'full');
+  const fullArch = await Architecture.findOne({
+    where: { novel_id: novelId, level: 'full' }
+  });
 
   const prompt = buildChapterBatchPrompt(novel, volume, fullArch);
 
-  const config = getConfig();
+  const config = await getConfig();
   const aiClient = getAIClient(config, signal);
 
   let lastError = null;
@@ -219,9 +216,8 @@ function parseChapterResult(content) {
   return [];
 }
 
-function getConfig() {
-  const stmt = db.prepare('SELECT * FROM system_configs');
-  const configs = stmt.all();
+async function getConfig() {
+  const configs = await SystemConfig.findAll();
 
   const configMap = {};
   configs.forEach(c => {

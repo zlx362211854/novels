@@ -1,96 +1,90 @@
-const db = require('../config/database');
+const { Chapter, ChapterVersion, Novel, Architecture } = require('../models/sequelize');
 const aiService = require('./aiService');
 const reviewAgent = require('./reviewAgent');
 
-function create(data) {
-  const stmt = db.prepare(`
-    INSERT INTO chapters (novel_id, architecture_id, chapter_number, title, content, status)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-  const result = stmt.run(
-    data.novelId,
-    data.architectureId || null,
-    data.chapterNumber,
-    data.title || null,
-    data.content || null,
-    data.status || 'draft'
-  );
-  return findById(result.lastInsertRowid);
+async function create(data) {
+  const chapter = await Chapter.create({
+    novel_id: data.novelId,
+    architecture_id: data.architectureId || null,
+    chapter_number: data.chapterNumber,
+    title: data.title || null,
+    content: data.content || null,
+    status: data.status || 'draft'
+  });
+  return chapter;
 }
 
-function findByNovelId(novelId) {
-  const stmt = db.prepare('SELECT * FROM chapters WHERE novel_id = ? ORDER BY chapter_number');
-  return stmt.all(novelId);
+async function findByNovelId(novelId) {
+  const chapters = await Chapter.findAll({
+    where: { novel_id: novelId },
+    order: [['chapter_number', 'ASC']]
+  });
+  return chapters;
 }
 
-function findById(id) {
-  const stmt = db.prepare('SELECT * FROM chapters WHERE id = ?');
-  return stmt.get(id);
+async function findById(id) {
+  const chapter = await Chapter.findByPk(id);
+  return chapter;
 }
 
-function update(id, data) {
-  const chapter = findById(id);
+async function update(id, data) {
+  const chapter = await Chapter.findByPk(id);
   if (!chapter) return null;
 
-  if (data.content && data.content !== chapter.content) {
-    createVersion(id, chapter.content);
+  if (data.content && data.content !== chapter.content && chapter.content) {
+    await createVersion(id, chapter.content);
   }
 
-  const stmt = db.prepare(`
-    UPDATE chapters 
-    SET title = COALESCE(?, title),
-        content = COALESCE(?, content),
-        status = COALESCE(?, status),
-        architecture_id = COALESCE(?, architecture_id),
-        updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `);
-  stmt.run(data.title, data.content, data.status, data.architectureId, id);
-  return findById(id);
+  if (data.title !== undefined) chapter.title = data.title;
+  if (data.content !== undefined) chapter.content = data.content;
+  if (data.status !== undefined) chapter.status = data.status;
+  if (data.architectureId !== undefined) chapter.architecture_id = data.architectureId;
+
+  await chapter.save();
+  return chapter;
 }
 
-function deleteChapter(id) {
-  const chapter = findById(id);
+async function deleteChapter(id) {
+  const chapter = await Chapter.findByPk(id);
   if (!chapter) return false;
 
-  const stmt = db.prepare('DELETE FROM chapters WHERE id = ?');
-  stmt.run(id);
+  await chapter.destroy();
   return true;
 }
 
-function createVersion(chapterId, content) {
-  const countStmt = db.prepare('SELECT COUNT(*) as count FROM chapter_versions WHERE chapter_id = ?');
-  const { count } = countStmt.get(chapterId);
+async function createVersion(chapterId, content) {
+  const count = await ChapterVersion.count({ where: { chapter_id: chapterId } });
 
-  const stmt = db.prepare(`
-    INSERT INTO chapter_versions (chapter_id, version_number, content)
-    VALUES (?, ?, ?)
-  `);
-  stmt.run(chapterId, count + 1, content);
+  await ChapterVersion.create({
+    chapter_id: chapterId,
+    version_number: count + 1,
+    content: content
+  });
 }
 
-function getVersions(chapterId) {
-  const stmt = db.prepare('SELECT * FROM chapter_versions WHERE chapter_id = ? ORDER BY version_number DESC');
-  return stmt.all(chapterId);
+async function getVersions(chapterId) {
+  const versions = await ChapterVersion.findAll({
+    where: { chapter_id: chapterId },
+    order: [['version_number', 'DESC']]
+  });
+  return versions;
 }
 
-function restoreVersion(chapterId, versionNumber) {
-  const versionStmt = db.prepare('SELECT content FROM chapter_versions WHERE chapter_id = ? AND version_number = ?');
-  const version = versionStmt.get(chapterId, versionNumber);
+async function restoreVersion(chapterId, versionNumber) {
+  const version = await ChapterVersion.findOne({
+    where: { chapter_id: chapterId, version_number: versionNumber }
+  });
   if (!version) return null;
 
   return update(chapterId, { content: version.content });
 }
 
 async function generate(chapterId, templateId, signal) {
-  const chapter = findById(chapterId);
+  const chapter = await Chapter.findByPk(chapterId);
   if (!chapter) throw new Error('章节不存在');
 
-  const novelStmt = db.prepare('SELECT * FROM novels WHERE id = ?');
-  const novel = novelStmt.get(chapter.novel_id);
-
-  const archStmt = db.prepare('SELECT * FROM architectures WHERE id = ?');
-  const architecture = chapter.architecture_id ? archStmt.get(chapter.architecture_id) : null;
+  const novel = await Novel.findByPk(chapter.novel_id);
+  const architecture = chapter.architecture_id ? await Architecture.findByPk(chapter.architecture_id) : null;
 
   const generatedContent = await aiService.generateChapter({
     novel,
@@ -99,7 +93,7 @@ async function generate(chapterId, templateId, signal) {
     templateId
   }, signal);
 
-  const updatedChapter = update(chapterId, {
+  const updatedChapter = await update(chapterId, {
     content: generatedContent,
     status: 'generated'
   });

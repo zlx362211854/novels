@@ -1,59 +1,57 @@
-const db = require('../config/database');
+const { PromptTemplate } = require('../models/sequelize');
 
-function findAll() {
-  const stmt = db.prepare('SELECT * FROM prompt_templates ORDER BY is_default DESC, created_at DESC');
-  return stmt.all();
+async function findAll() {
+  const templates = await PromptTemplate.findAll({
+    order: [['is_default', 'DESC'], ['created_at', 'DESC']]
+  });
+  return templates;
 }
 
-function findById(id) {
-  const stmt = db.prepare('SELECT * FROM prompt_templates WHERE id = ?');
-  return stmt.get(id);
+async function findById(id) {
+  const template = await PromptTemplate.findByPk(id);
+  return template;
 }
 
-function create(data) {
-  const stmt = db.prepare(`
-    INSERT INTO prompt_templates (name, template, description, is_default)
-    VALUES (?, ?, ?, 0)
-  `);
-  const result = stmt.run(data.name, data.template, data.description || null);
-  return findById(result.lastInsertRowid);
+async function create(data) {
+  const template = await PromptTemplate.create({
+    name: data.name,
+    template: data.template,
+    description: data.description || null,
+    is_default: 0
+  });
+  return template;
 }
 
-function update(id, data) {
-  const template = findById(id);
+async function update(id, data) {
+  const template = await PromptTemplate.findByPk(id);
   if (!template) return null;
 
-  const stmt = db.prepare(`
-    UPDATE prompt_templates 
-    SET name = COALESCE(?, name),
-        template = COALESCE(?, template),
-        description = COALESCE(?, description),
-        updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `);
-  stmt.run(data.name, data.template, data.description, id);
-  return findById(id);
+  if (data.name !== undefined) template.name = data.name;
+  if (data.template !== undefined) template.template = data.template;
+  if (data.description !== undefined) template.description = data.description;
+
+  await template.save();
+  return template;
 }
 
-function deleteTemplate(id) {
-  const template = findById(id);
+async function deleteTemplate(id) {
+  const template = await PromptTemplate.findByPk(id);
   if (!template) return false;
 
-  const stmt = db.prepare('DELETE FROM prompt_templates WHERE id = ?');
-  stmt.run(id);
+  await template.destroy();
   return true;
 }
 
-function setDefault(id) {
-  const template = findById(id);
+async function setDefault(id) {
+  const template = await PromptTemplate.findByPk(id);
   if (!template) return null;
 
-  db.prepare('UPDATE prompt_templates SET is_default = 0').run();
+  await PromptTemplate.update({ is_default: 0 }, { where: { is_default: 1 } });
 
-  const stmt = db.prepare('UPDATE prompt_templates SET is_default = 1 WHERE id = ?');
-  stmt.run(id);
+  template.is_default = 1;
+  await template.save();
 
-  return findById(id);
+  return template;
 }
 
 module.exports = {

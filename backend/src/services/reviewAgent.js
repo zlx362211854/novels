@@ -1,10 +1,10 @@
-const db = require('../config/database');
+const { SystemConfig } = require('../models/sequelize');
 const aiService = require('./aiService');
 
 async function review(params, signal) {
   const { chapter, novel, architecture } = params;
 
-  const config = getConfig();
+  const config = await getConfig();
 
   const reviewPrompt = buildReviewPrompt(chapter, novel, architecture, config);
 
@@ -27,9 +27,8 @@ async function review(params, signal) {
   }
 }
 
-function getConfig() {
-  const stmt = db.prepare('SELECT * FROM system_configs');
-  const configs = stmt.all();
+async function getConfig() {
+  const configs = await SystemConfig.findAll();
 
   const configMap = {};
   configs.forEach(c => {

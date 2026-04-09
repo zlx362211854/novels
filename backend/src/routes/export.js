@@ -2,10 +2,10 @@ const express = require('express');
 const router = express.Router();
 const exportService = require('../services/exportService');
 
-router.get('/novels/:id/export', (req, res) => {
+router.get('/novels/:id/export', async (req, res) => {
   try {
     const { scope, volumeId } = req.query;
-    const markdown = exportService.exportToMarkdown({
+    const markdown = await exportService.exportToMarkdown({
       novelId: req.params.id,
       scope: scope || 'full',
       volumeId
