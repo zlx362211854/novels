@@ -5,13 +5,17 @@ import App from './App.jsx'
 import { FeedbackProvider } from './components/ui/FeedbackProvider.jsx'
 import { TooltipProvider } from './components/ui/tooltip.jsx'
 import { Toaster } from './components/ui/sonner.jsx'
+import { AiStatusProvider, AiStatusBar } from './components/AiStatusProvider.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <TooltipProvider>
       <FeedbackProvider>
-        <App />
-        <Toaster position="top-center" richColors />
+        <AiStatusProvider>
+          <App />
+          <AiStatusBar />
+          <Toaster position="top-center" richColors />
+        </AiStatusProvider>
       </FeedbackProvider>
     </TooltipProvider>
   </StrictMode>,
