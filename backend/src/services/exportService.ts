@@ -1,6 +1,12 @@
-const { Novel, Architecture, Chapter } = require('../models/sequelize');
+import { Novel, Architecture, Chapter } from '../models/sequelize';
 
-async function exportToMarkdown(params) {
+interface ExportParams {
+  novelId: number;
+  scope?: string;
+  volumeId?: string | number;
+}
+
+async function exportToMarkdown(params: ExportParams): Promise<string> {
   const { novelId, scope, volumeId } = params;
 
   const novel = await Novel.findByPk(novelId);
@@ -25,7 +31,7 @@ async function exportToMarkdown(params) {
     order: [['chapter_number', 'ASC']]
   });
 
-  const fullArch = architectures.find(a => a.level === 'full');
+  const fullArch = architectures.find((a: any) => a.level === 'full');
   if (fullArch) {
     markdown += `## 全本架构: ${fullArch.title}\n\n`;
     if (fullArch.plot_outline) {
@@ -34,21 +40,21 @@ async function exportToMarkdown(params) {
     markdown += `---\n\n`;
   }
 
-  const volumes = architectures.filter(a => a.level === 'volume');
-  const chapterArchs = architectures.filter(a => a.level === 'chapter');
+  const volumes = architectures.filter((a: any) => a.level === 'volume');
+  const chapterArchs = architectures.filter((a: any) => a.level === 'chapter');
 
   if (scope === 'volume' && volumeId) {
-    const volume = volumes.find(v => v.id === parseInt(volumeId));
+    const volume = volumes.find((v: any) => v.id === parseInt(String(volumeId)));
     if (volume) {
       markdown += exportVolume(volume, chapterArchs, chapters);
     }
   } else {
-    volumes.forEach(volume => {
+    volumes.forEach((volume: any) => {
       markdown += exportVolume(volume, chapterArchs, chapters);
     });
 
-    const orphanChapters = chapters.filter(c => !c.architecture_id);
-    orphanChapters.forEach(chapter => {
+    const orphanChapters = chapters.filter((c: any) => !c.architecture_id);
+    orphanChapters.forEach((chapter: any) => {
       markdown += exportChapter(chapter);
     });
   }
@@ -56,23 +62,23 @@ async function exportToMarkdown(params) {
   return markdown;
 }
 
-function exportVolume(volume, chapterArchs, chapters) {
+function exportVolume(volume: any, chapterArchs: any[], chapters: any[]): string {
   let markdown = `## 卷: ${volume.title}\n\n`;
 
   if (volume.plot_outline) {
     markdown += `### 情节大纲\n\n${volume.plot_outline}\n\n`;
   }
 
-  const volumeChapterArchs = chapterArchs.filter(a => a.parent_id === volume.id);
-  volumeChapterArchs.forEach(arch => {
-    const archChapters = chapters.filter(c => c.architecture_id === arch.id);
-    archChapters.forEach(chapter => {
+  const volumeChapterArchs = chapterArchs.filter((a: any) => a.parent_id === volume.id);
+  volumeChapterArchs.forEach((arch: any) => {
+    const archChapters = chapters.filter((c: any) => c.architecture_id === arch.id);
+    archChapters.forEach((chapter: any) => {
       markdown += exportChapter(chapter, arch);
     });
   });
 
-  const volumeChapters = chapters.filter(c => c.architecture_id === volume.id);
-  volumeChapters.forEach(chapter => {
+  const volumeChapters = chapters.filter((c: any) => c.architecture_id === volume.id);
+  volumeChapters.forEach((chapter: any) => {
     markdown += exportChapter(chapter);
   });
 
@@ -80,7 +86,7 @@ function exportVolume(volume, chapterArchs, chapters) {
   return markdown;
 }
 
-function exportChapter(chapter, arch) {
+function exportChapter(chapter: any, arch?: any): string {
   let markdown = `### 第${chapter.chapter_number}章: ${chapter.title || '未命名'}\n\n`;
 
   if (arch) {
@@ -96,6 +102,18 @@ function exportChapter(chapter, arch) {
   return markdown;
 }
 
-module.exports = {
-  exportToMarkdown
+async function exportNovel(novelId: number, format: string = 'txt'): Promise<string> {
+  return exportToMarkdown({ novelId });
+}
+
+async function exportChapterContent(chapterId: number): Promise<any> {
+  const chapter = await Chapter.findByPk(chapterId);
+  if (!chapter) throw new Error('章节不存在');
+  return exportChapter(chapter);
+}
+
+export {
+  exportToMarkdown,
+  exportNovel,
+  exportChapterContent
 };

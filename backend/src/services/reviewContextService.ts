@@ -1,11 +1,11 @@
-const { Chapter, Novel, Architecture } = require('../models/sequelize');
-const chapterMemoryService = require('./chapterMemoryService');
+import { Chapter, Novel, Architecture } from '../models/sequelize';
+import * as chapterMemoryService from './chapterMemoryService';
 
-function uniqueTerms(values) {
+function uniqueTerms(values: any[]): string[] {
   const seen = new Set();
-  const terms = [];
+  const terms: string[] = [];
 
-  values.forEach((value) => {
+  values.forEach((value: any) => {
     if (!value || typeof value !== 'string') return;
     const term = value.trim();
     if (!term || seen.has(term)) return;
@@ -16,7 +16,7 @@ function uniqueTerms(values) {
   return terms;
 }
 
-function collectQueryTerms(memoryCard = {}) {
+function collectQueryTerms(memoryCard: any = {}): string[] {
   const entityTerms = [
     ...(memoryCard.entities?.characters || []),
     ...(memoryCard.entities?.locations || []),
@@ -24,23 +24,23 @@ function collectQueryTerms(memoryCard = {}) {
     ...(memoryCard.entities?.organizations || [])
   ];
 
-  const factTerms = (memoryCard.facts || []).flatMap((fact) => [
+  const factTerms = (memoryCard.facts || []).flatMap((fact: any) => [
     fact.subject,
     fact.predicate,
     fact.object
   ]);
 
-  const threadTerms = (memoryCard.open_threads || []).map((thread) => thread.thread);
+  const threadTerms = (memoryCard.open_threads || []).map((thread: any) => thread.thread);
 
   return uniqueTerms([...entityTerms, ...factTerms, ...threadTerms]);
 }
 
-function overlapCount(left, right) {
+function overlapCount(left: string[], right: string[]): number {
   const rightSet = new Set(right);
   return left.reduce((count, term) => count + (rightSet.has(term) ? 1 : 0), 0);
 }
 
-function scoreMemoryMatch(currentMemory, historicalMemory) {
+function scoreMemoryMatch(currentMemory: any, historicalMemory: any): number {
   const currentEntityTerms = uniqueTerms([
     ...(currentMemory.entities?.characters || []),
     ...(currentMemory.entities?.locations || []),
@@ -54,11 +54,11 @@ function scoreMemoryMatch(currentMemory, historicalMemory) {
     ...(historicalMemory.entities?.organizations || [])
   ]);
 
-  const currentFactTerms = uniqueTerms((currentMemory.facts || []).flatMap((fact) => [fact.subject, fact.object]));
-  const historicalFactTerms = uniqueTerms((historicalMemory.facts || []).flatMap((fact) => [fact.subject, fact.object]));
+  const currentFactTerms = uniqueTerms((currentMemory.facts || []).flatMap((fact: any) => [fact.subject, fact.object]));
+  const historicalFactTerms = uniqueTerms((historicalMemory.facts || []).flatMap((fact: any) => [fact.subject, fact.object]));
 
-  const currentThreadTerms = uniqueTerms((currentMemory.open_threads || []).map((thread) => thread.thread));
-  const historicalThreadTerms = uniqueTerms((historicalMemory.open_threads || []).map((thread) => thread.thread));
+  const currentThreadTerms = uniqueTerms((currentMemory.open_threads || []).map((thread: any) => thread.thread));
+  const historicalThreadTerms = uniqueTerms((historicalMemory.open_threads || []).map((thread: any) => thread.thread));
 
   return (
     overlapCount(currentEntityTerms, historicalEntityTerms) * 3 +
@@ -67,7 +67,7 @@ function scoreMemoryMatch(currentMemory, historicalMemory) {
   );
 }
 
-function sliceExcerpt(content, term) {
+function sliceExcerpt(content: string, term: string): string {
   if (!content) return '';
 
   const index = term ? content.indexOf(term) : -1;
@@ -78,10 +78,10 @@ function sliceExcerpt(content, term) {
   return content.slice(Math.max(0, index - 80), index + 140);
 }
 
-function pickExcerpt(memory, chapter, queryTerms) {
+function pickExcerpt(memory: any, chapter: any, queryTerms: string[]): string {
   const excerptMap = Array.isArray(memory.source_excerpt_map) ? memory.source_excerpt_map : [];
   for (const term of queryTerms) {
-    const matched = excerptMap.find((item) => item.label === term || item.excerpt?.includes(term));
+    const matched = excerptMap.find((item: any) => item.label === term || item.excerpt?.includes(term));
     if (matched?.excerpt) {
       return matched.excerpt;
     }
@@ -95,7 +95,7 @@ function pickExcerpt(memory, chapter, queryTerms) {
   return sliceExcerpt(chapter.content || '', '');
 }
 
-async function buildReviewContext(chapterId, signal, preloaded = {}) {
+async function buildReviewContext(chapterId: number, signal?: AbortSignal, preloaded: any = {}): Promise<any> {
   const chapter = preloaded.chapter || await Chapter.findByPk(chapterId);
   if (!chapter) {
     throw new Error('章节不存在');
@@ -136,19 +136,19 @@ async function buildReviewContext(chapterId, signal, preloaded = {}) {
 
   const currentMemory = preloaded.currentMemory ?? await chapterMemoryService.upsertForChapter(chapterId, signal);
   const allMemories = await chapterMemoryService.findByNovelId(chapter.novel_id);
-  const historicalMemories = allMemories.filter((memory) => memory.chapter_id !== chapter.id);
+  const historicalMemories = allMemories.filter((memory: any) => memory.chapter_id !== chapter.id);
 
   const ranked = historicalMemories
-    .map((memory) => ({
+    .map((memory: any) => ({
       memory,
       score: scoreMemoryMatch(currentMemory, memory)
     }))
-    .filter((item) => item.score > 0)
-    .sort((left, right) => right.score - left.score)
+    .filter((item: any) => item.score > 0)
+    .sort((left: any, right: any) => right.score - left.score)
     .slice(0, 8);
 
   const queryTerms = collectQueryTerms(currentMemory);
-  const sourceExcerpts = [];
+  const sourceExcerpts: any[] = [];
 
   for (const item of ranked) {
     const sourceChapter = await Chapter.findByPk(item.memory.chapter_id);
@@ -164,14 +164,14 @@ async function buildReviewContext(chapterId, signal, preloaded = {}) {
   return {
     currentChapter: chapter,
     currentMemory,
-    relevantMemories: ranked.map((item) => item.memory),
+    relevantMemories: ranked.map((item: any) => item.memory),
     sourceExcerpts,
     architecture,
     novel
   };
 }
 
-module.exports = {
+export {
   buildReviewContext,
   collectQueryTerms,
   scoreMemoryMatch,

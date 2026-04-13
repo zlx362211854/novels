@@ -1,12 +1,24 @@
-const EventEmitter = require('node:events');
+import { EventEmitter } from 'events';
 
 const emitter = new EventEmitter();
 emitter.setMaxListeners(50);
 
-let currentTask = null;
-let tickTimer = null;
+interface TaskInfo {
+  taskId: string;
+  label: string;
+  steps: string[];
+  currentStep: number;
+  currentStepLabel: string;
+  status: 'running' | 'done' | 'error';
+  startedAt: number;
+  elapsed: number;
+  errorMessage?: string;
+}
 
-function startTickTimer() {
+let currentTask: TaskInfo | null = null;
+let tickTimer: NodeJS.Timeout | null = null;
+
+function startTickTimer(): void {
   stopTickTimer();
   tickTimer = setInterval(() => {
     if (!currentTask) { stopTickTimer(); return; }
@@ -15,11 +27,11 @@ function startTickTimer() {
   }, 5000);
 }
 
-function stopTickTimer() {
+function stopTickTimer(): void {
   if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
 }
 
-function start(taskId, label, steps) {
+function start(taskId: string, label: string, steps: string[]): void {
   currentTask = {
     taskId,
     label,
@@ -34,7 +46,7 @@ function start(taskId, label, steps) {
   startTickTimer();
 }
 
-function step(taskId, stepIndex, stepLabel) {
+function step(taskId: string, stepIndex: number, stepLabel: string): void {
   if (!currentTask || currentTask.taskId !== taskId) return;
   currentTask.currentStep = stepIndex;
   currentTask.currentStepLabel = stepLabel;
@@ -42,7 +54,7 @@ function step(taskId, stepIndex, stepLabel) {
   emitter.emit('update', { ...currentTask });
 }
 
-function finish(taskId) {
+function finish(taskId: string): void {
   if (!currentTask || currentTask.taskId !== taskId) return;
   stopTickTimer();
   currentTask.status = 'done';
@@ -51,7 +63,7 @@ function finish(taskId) {
   currentTask = null;
 }
 
-function error(taskId, message) {
+function error(taskId: string, message: string): void {
   if (!currentTask || currentTask.taskId !== taskId) return;
   stopTickTimer();
   currentTask.status = 'error';
@@ -61,11 +73,11 @@ function error(taskId, message) {
   currentTask = null;
 }
 
-function getCurrent() {
+function getCurrent(): TaskInfo | null {
   return currentTask ? { ...currentTask } : null;
 }
 
-module.exports = {
+export {
   emitter,
   start,
   step,

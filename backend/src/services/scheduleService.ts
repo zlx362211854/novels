@@ -1,37 +1,54 @@
-const { ScheduledTask, Chapter } = require('../models/sequelize');
-const schedule = require('node-schedule');
-const chapterService = require('./chapterService');
+import { ScheduledTask, Chapter } from '../models/sequelize';
+import * as schedule from 'node-schedule';
+import * as chapterService from './chapterService';
 
 const scheduledJobs = new Map();
 
-async function create(data) {
+interface CreateTaskData {
+  novelId: number;
+  chapterId?: number;
+  taskType: string;
+  scheduledTime: Date;
+}
+
+interface TaskData {
+  id: number;
+  novel_id: number;
+  chapter_id: number | null;
+  task_type: string;
+  scheduled_time: string;
+  status: string;
+  retry_count: number;
+}
+
+async function create(data: CreateTaskData): Promise<any> {
   const task = await ScheduledTask.create({
     novel_id: data.novelId,
     chapter_id: data.chapterId || null,
     task_type: data.taskType,
-    scheduled_time: data.scheduledTime.toISOString(),
+    scheduled_time: data.scheduledTime,
     status: 'pending'
   });
 
   const savedTask = await findById(task.id);
-  scheduleJob(savedTask);
+  if (savedTask) scheduleJob(savedTask);
 
   return savedTask;
 }
 
-async function findAll() {
+async function findAll(): Promise<any[]> {
   const tasks = await ScheduledTask.findAll({
     order: [['scheduled_time', 'ASC']]
   });
   return tasks;
 }
 
-async function findById(id) {
+async function findById(id: number): Promise<any> {
   const task = await ScheduledTask.findByPk(id);
   return task;
 }
 
-async function deleteTask(id) {
+async function deleteTask(id: number): Promise<boolean> {
   const task = await ScheduledTask.findByPk(id);
   if (!task) return false;
 
@@ -44,7 +61,7 @@ async function deleteTask(id) {
   return true;
 }
 
-async function updateStatus(id, status, retryCount) {
+async function updateStatus(id: number, status: string, retryCount: number): Promise<void> {
   const task = await ScheduledTask.findByPk(id);
   if (!task) return;
 
@@ -53,7 +70,7 @@ async function updateStatus(id, status, retryCount) {
   await task.save();
 }
 
-function scheduleJob(task) {
+function scheduleJob(task: any): void {
   if (task.status !== 'pending') return;
 
   const job = schedule.scheduleJob(new Date(task.scheduled_time), async () => {
@@ -66,7 +83,7 @@ function scheduleJob(task) {
 
       await updateStatus(task.id, 'completed', task.retry_count);
     } catch (error) {
-      console.error(`定时任务执行失败: ${task.id}`, error.message);
+      console.error(`定时任务执行失败: ${task.id}`, (error as Error).message);
 
       if (task.retry_count < 3) {
         await updateStatus(task.id, 'pending', task.retry_count + 1);
@@ -82,24 +99,26 @@ function scheduleJob(task) {
   scheduledJobs.set(task.id, job);
 }
 
-async function initScheduledJobs() {
-  const tasks = await ScheduledTask.findAll({
-    where: { status: 'pending' }
-  });
-
-  tasks.forEach(task => {
-    if (new Date(task.scheduled_time) > new Date()) {
-      scheduleJob(task);
-    }
-  });
-
-  console.log(`已恢复 ${tasks.length} 个定时任务`);
+async function getTasks(): Promise<any[]> {
+  return findAll();
 }
 
-module.exports = {
+async function createTask(data: CreateTaskData): Promise<any> {
+  return create(data);
+}
+
+function initScheduledJobs(): void {
+  console.log('初始化定时任务...');
+  scheduledJobs.clear();
+}
+
+export {
   create,
   findAll,
   findById,
-  delete: deleteTask,
+  deleteTask,
+  updateStatus,
+  getTasks,
+  createTask,
   initScheduledJobs
 };

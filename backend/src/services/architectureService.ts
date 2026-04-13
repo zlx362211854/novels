@@ -1,6 +1,27 @@
-const { Architecture, Novel, Chapter } = require('../models/sequelize');
+import { Architecture, Chapter } from '../models/sequelize';
 
-async function create(data) {
+interface CreateArchitectureData {
+  novelId: number;
+  level: string;
+  parentId?: number | null;
+  title: string;
+  plotOutline?: string;
+  characters?: object;
+  worldSetting?: object;
+  emotionalTone?: string;
+  metadata?: object;
+}
+
+interface UpdateArchitectureData {
+  title?: string;
+  plotOutline?: string;
+  characters?: object;
+  worldSetting?: object;
+  emotionalTone?: string;
+  metadata?: object;
+}
+
+async function create(data: CreateArchitectureData): Promise<any> {
   const architecture = await Architecture.create({
     novel_id: data.novelId,
     level: data.level,
@@ -15,7 +36,7 @@ async function create(data) {
   return parseJsonFields(architecture);
 }
 
-async function findByNovelId(novelId) {
+async function findByNovelId(novelId: number | string): Promise<any[]> {
   const architectures = await Architecture.findAll({
     where: { novel_id: novelId },
     order: [['id', 'ASC']]
@@ -23,7 +44,7 @@ async function findByNovelId(novelId) {
   return architectures.map(row => parseJsonFields(row));
 }
 
-async function findByParentId(parentId) {
+async function findByParentId(parentId: number | string): Promise<any[]> {
   const architectures = await Architecture.findAll({
     where: { parent_id: parentId },
     order: [['id', 'ASC']]
@@ -31,12 +52,12 @@ async function findByParentId(parentId) {
   return architectures.map(row => parseJsonFields(row));
 }
 
-async function findById(id) {
+async function findById(id: number | string): Promise<any | null> {
   const architecture = await Architecture.findByPk(id);
   return architecture ? parseJsonFields(architecture) : null;
 }
 
-async function update(id, data) {
+async function update(id: number | string, data: UpdateArchitectureData): Promise<any | null> {
   const architecture = await Architecture.findByPk(id);
   if (!architecture) return null;
 
@@ -51,7 +72,7 @@ async function update(id, data) {
   return parseJsonFields(architecture);
 }
 
-async function deleteArchitecture(id) {
+async function deleteArchitecture(id: number | string): Promise<boolean> {
   const architecture = await Architecture.findByPk(id);
   if (!architecture) return false;
 
@@ -59,8 +80,8 @@ async function deleteArchitecture(id) {
   return true;
 }
 
-async function replaceChapterArchitectures(novelId, volumeId, chapters) {
-  const where = {
+async function replaceChapterArchitectures(novelId: number | string, volumeId: number | string | null, chapters: any[]): Promise<any[]> {
+  const where: any = {
     novel_id: novelId,
     level: 'chapter',
     parent_id: volumeId || null
@@ -83,9 +104,9 @@ async function replaceChapterArchitectures(novelId, volumeId, chapters) {
   const created = [];
   for (const chapter of chapters) {
     const createdArchitecture = await create({
-      novelId,
+      novelId: Number(novelId),
       level: 'chapter',
-      parentId: volumeId || null,
+      parentId: volumeId ? Number(volumeId) : null,
       title: chapter.title,
       plotOutline: chapter.plot_outline || chapter.plotOutline || ''
     });
@@ -95,7 +116,7 @@ async function replaceChapterArchitectures(novelId, volumeId, chapters) {
   return created;
 }
 
-function parseJsonFields(row) {
+function parseJsonFields(row: any): any {
   let plain;
   if (row.toJSON) {
     plain = row.toJSON();
@@ -117,12 +138,4 @@ function parseJsonFields(row) {
   };
 }
 
-module.exports = {
-  create,
-  findByNovelId,
-  findByParentId,
-  findById,
-  update,
-  delete: deleteArchitecture,
-  replaceChapterArchitectures
-};
+export { create, findByNovelId, findByParentId, findById, update, deleteArchitecture as delete, replaceChapterArchitectures };

@@ -1,6 +1,12 @@
-const { Novel } = require('../models/sequelize');
+import { Novel } from '../models/sequelize';
 
-async function create(data) {
+interface CreateNovelData {
+  title: string;
+  description?: string;
+  genre?: string;
+}
+
+async function create(data: CreateNovelData): Promise<Novel> {
   const novel = await Novel.create({
     title: data.title,
     description: data.description || null,
@@ -9,19 +15,19 @@ async function create(data) {
   return novel;
 }
 
-async function findAll() {
+async function findAll(): Promise<Novel[]> {
   const novels = await Novel.findAll({
     order: [['updated_at', 'DESC']]
   });
   return novels;
 }
 
-async function findById(id) {
+async function findById(id: string | number): Promise<Novel | null> {
   const novel = await Novel.findByPk(id);
   return novel;
 }
 
-async function update(id, data) {
+async function update(id: string | number, data: Partial<CreateNovelData>): Promise<Novel | null> {
   const novel = await Novel.findByPk(id);
   if (!novel) return null;
 
@@ -33,7 +39,7 @@ async function update(id, data) {
   return novel;
 }
 
-async function deleteNovel(id) {
+async function deleteNovel(id: string | number): Promise<boolean> {
   const novel = await Novel.findByPk(id);
   if (!novel) return false;
 
@@ -41,10 +47,4 @@ async function deleteNovel(id) {
   return true;
 }
 
-module.exports = {
-  create,
-  findAll,
-  findById,
-  update,
-  delete: deleteNovel
-};
+export { create, findAll, findById, update, deleteNovel };

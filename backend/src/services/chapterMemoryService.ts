@@ -1,17 +1,12 @@
-const crypto = require('node:crypto');
-const {
-  Chapter,
-  ChapterMemory,
-  Novel,
-  Architecture
-} = require('../models/sequelize');
-const chapterMemoryAgent = require('../agents/chapterMemoryAgent');
+import * as crypto from 'node:crypto';
+import { Chapter, ChapterMemory, Novel, Architecture } from '../models/sequelize';
+import * as chapterMemoryAgent from '../agents/chapterMemoryAgent';
 
-function buildContentHash(content) {
+function buildContentHash(content: string): string {
   return crypto.createHash('sha256').update(content || '').digest('hex');
 }
 
-function normalizeMemoryCard(memoryCard = {}) {
+function normalizeMemoryCard(memoryCard: any = {}): any {
   return {
     summary: memoryCard.summary || '',
     entities: {
@@ -27,7 +22,7 @@ function normalizeMemoryCard(memoryCard = {}) {
   };
 }
 
-function parseJsonField(value, fallback) {
+function parseJsonField(value: any, fallback: any): any {
   if (!value) return fallback;
   try {
     return JSON.parse(value);
@@ -36,7 +31,7 @@ function parseJsonField(value, fallback) {
   }
 }
 
-function serializeMemory(memory) {
+function serializeMemory(memory: any): any {
   return {
     summary: memory.summary,
     entities: JSON.stringify(memory.entities),
@@ -47,7 +42,7 @@ function serializeMemory(memory) {
   };
 }
 
-function deserializeMemory(row) {
+function deserializeMemory(row: any): any {
   if (!row) return null;
 
   const plain = typeof row.get === 'function' ? row.get({ plain: true }) : row;
@@ -66,7 +61,7 @@ function deserializeMemory(row) {
   };
 }
 
-async function loadChapterContext(chapterId) {
+async function loadChapterContext(chapterId: number): Promise<any> {
   const chapter = await Chapter.findByPk(chapterId);
   if (!chapter) {
     throw new Error('章节不存在');
@@ -84,7 +79,7 @@ async function loadChapterContext(chapterId) {
   return { chapter, novel, architecture };
 }
 
-async function upsertForChapter(chapterId, signal) {
+async function upsertForChapter(chapterId: number, signal?: AbortSignal): Promise<any> {
   const { chapter, novel, architecture } = await loadChapterContext(chapterId);
 
   if (!chapter.content || !chapter.content.trim()) {
@@ -109,7 +104,7 @@ async function upsertForChapter(chapterId, signal) {
       { skipRepairOnParseFailure: existingNovelMemoryCount === 0 }
     );
     memory = normalizeMemoryCard(extracted);
-  } catch (error) {
+  } catch (error: any) {
     if (existingNovelMemoryCount === 0) {
       console.warn(
         `[chapter-memory] 首章记忆卡生成失败，回退为空记忆卡。chapterId=${chapterId} error=${error.message}`
@@ -127,7 +122,7 @@ async function upsertForChapter(chapterId, signal) {
     }
   }
 
-  const payload = {
+  const payload: any = {
     novel_id: chapter.novel_id,
     chapter_id: chapter.id,
     chapter_number: chapter.chapter_number,
@@ -144,12 +139,12 @@ async function upsertForChapter(chapterId, signal) {
   return deserializeMemory(created);
 }
 
-async function findByChapterId(chapterId) {
+async function findByChapterId(chapterId: number): Promise<any> {
   const memory = await ChapterMemory.findOne({ where: { chapter_id: chapterId } });
   return deserializeMemory(memory);
 }
 
-async function findByNovelId(novelId) {
+async function findByNovelId(novelId: number): Promise<any[]> {
   const memories = await ChapterMemory.findAll({
     where: { novel_id: novelId },
     order: [['chapter_number', 'ASC']]
@@ -157,7 +152,7 @@ async function findByNovelId(novelId) {
   return memories.map(deserializeMemory);
 }
 
-module.exports = {
+export {
   upsertForChapter,
   findByChapterId,
   findByNovelId,

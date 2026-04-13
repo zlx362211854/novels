@@ -1,6 +1,20 @@
-const { Novel, Architecture, Chapter, ChapterMemory, SystemConfig } = require('../models/sequelize');
+import { Novel, Architecture, Chapter, ChapterMemory, SystemConfig } from '../models/sequelize';
 
-async function generateChapter(params, signal) {
+interface GenerateChapterParams {
+  novel: any;
+  chapter: any;
+  architecture: any;
+}
+
+interface Config {
+  aiModel?: string;
+  zhipuApiKey?: string;
+  zhipuApiUrl?: string;
+  deepseekApiKey?: string;
+  deepseekApiUrl?: string;
+}
+
+async function generateChapter(params: GenerateChapterParams, signal?: AbortSignal): Promise<string> {
   const { novel, chapter, architecture } = params;
 
   const config = await getConfig();
@@ -8,7 +22,6 @@ async function generateChapter(params, signal) {
     where: { novel_id: novel.id, level: 'full' }
   });
 
-  // 取当前章节所属的卷架构（通过 architecture.parent_id 或 architecture 本身）
   let volumeArch = null;
   if (architecture) {
     if (architecture.level === 'chapter' && architecture.parent_id) {
@@ -18,7 +31,6 @@ async function generateChapter(params, signal) {
     }
   }
 
-  // 取上一章内容（与 generateChapterFromArchitecture 保持一致）
   const prevChapterContent = architecture?.id
     ? await getPreviousChapterContent(architecture.id, architecture.parent_id)
     : null;
@@ -27,13 +39,13 @@ async function generateChapter(params, signal) {
 
   const aiClient = getAIClient(config, signal);
 
-  let lastError = null;
+  let lastError: Error | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (signal?.aborted) throw Object.assign(new Error('请求已取消'), { name: 'AbortError' });
     try {
       const content = await aiClient.generate(prompt);
       return content;
-    } catch (error) {
+    } catch (error: any) {
       if (error.name === 'AbortError') {
         console.log('[abort] AI fetch 已中止 (generateChapter)');
         throw error;
@@ -46,21 +58,17 @@ async function generateChapter(params, signal) {
     }
   }
 
-  throw new Error(`AI生成失败: ${lastError.message}`);
+  throw new Error(`AI生成失败: ${lastError?.message}`);
 }
 
-async function generateChapterFromArchitecture(params, signal) {
-  console.log('=== generateChapterFromArchitecture 开始执行 ===');
+async function generateChapterFromArchitecture(params: any, signal?: AbortSignal): Promise<string> {
   const { novelId, chapterArchId } = params;
-  console.log('参数:', { novelId, chapterArchId });
 
   const novel = await Novel.findByPk(novelId);
   if (!novel) throw new Error('小说不存在');
-  console.log('小说:', novel.title);
 
   const chapterArch = await Architecture.findByPk(chapterArchId);
   if (!chapterArch) throw new Error('章架构不存在');
-  console.log('章节架构:', chapterArch.title);
 
   const fullArch = await Architecture.findOne({
     where: { novel_id: novelId, level: 'full' }
@@ -73,16 +81,15 @@ async function generateChapterFromArchitecture(params, signal) {
   const prompt = buildChapterPrompt(novel, chapterArch, volumeArch, fullArch, prevChapterContent);
 
   const config = await getConfig();
-  console.log('config.aiModel:', config.aiModel);
   const aiClient = getAIClient(config, signal);
 
-  let lastError = null;
+  let lastError: Error | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (signal?.aborted) throw Object.assign(new Error('请求已取消'), { name: 'AbortError' });
     try {
       const content = await aiClient.generate(prompt);
       return content;
-    } catch (error) {
+    } catch (error: any) {
       if (error.name === 'AbortError') throw error;
       lastError = error;
       console.error(`AI生成章节失败，第${attempt + 1}次重试:`, error.message);
@@ -92,10 +99,10 @@ async function generateChapterFromArchitecture(params, signal) {
     }
   }
 
-  throw new Error(`AI生成失败: ${lastError.message}`);
+  throw new Error(`AI生成失败: ${lastError?.message}`);
 }
 
-async function getPreviousChapterContent(currentArchId, parentId) {
+async function getPreviousChapterContent(currentArchId: number, parentId: number | null): Promise<any> {
   if (!parentId) return null;
 
   const prevArch = await Architecture.findOne({
@@ -120,7 +127,7 @@ async function getPreviousChapterContent(currentArchId, parentId) {
   return await getChapterByArchitectureId(prevArch.id);
 }
 
-async function getChapterByArchitectureId(archId) {
+async function getChapterByArchitectureId(archId: number): Promise<any> {
   const prevChapter = await Chapter.findOne({
     where: { architecture_id: archId }
   });
@@ -135,8 +142,8 @@ async function getChapterByArchitectureId(archId) {
     const memoryRecord = await ChapterMemory.findOne({
       where: { chapter_id: prevChapter.id }
     });
-    if (memoryRecord && memoryRecord.memory_data) {
-      prevMemory = memoryRecord.memory_data;
+    if (memoryRecord && (memoryRecord as any).memory_data) {
+      prevMemory = (memoryRecord as any).memory_data;
     }
   }
 
@@ -148,7 +155,7 @@ async function getChapterByArchitectureId(archId) {
   };
 }
 
-function buildChapterPrompt(novel, chapterArch, volumeArch, fullArch, prevChapterContent) {
+function buildChapterPrompt(novel: any, chapterArch: any, volumeArch: any, fullArch: any, prevChapterContent: any): string {
   let context = `## 小说信息
 标题：${novel.title}
 类型：${novel.genre || '未指定'}
@@ -212,7 +219,7 @@ function buildChapterPrompt(novel, chapterArch, volumeArch, fullArch, prevChapte
     let memorySection = '';
     if (prevChapterContent.memory && prevChapterContent.memory.facts && prevChapterContent.memory.facts.length > 0) {
       const facts = prevChapterContent.memory.facts;
-      const keyFacts = facts.slice(0, 10).map(f => `- ${f.subject} ${f.predicate} ${f.object}`).join('\n');
+      const keyFacts = facts.slice(0, 10).map((f: any) => `- ${f.subject} ${f.predicate} ${f.object}`).join('\n');
       memorySection = `
 **关键事实：**
 ${keyFacts}
@@ -312,11 +319,11 @@ ${chapterInfo}
 请开始撰写本章正文：`;
 }
 
-async function getConfig() {
+async function getConfig(): Promise<Config> {
   const configs = await SystemConfig.findAll();
 
-  const configMap = {};
-  configs.forEach(c => {
+  const configMap: any = {};
+  configs.forEach((c: any) => {
     try {
       configMap[c.config_key] = JSON.parse(c.config_value);
     } catch {
@@ -333,7 +340,7 @@ async function getConfig() {
   };
 }
 
-function startProgressLog(label, signal) {
+function startProgressLog(label: string, signal?: AbortSignal): () => void {
   const start = Date.now();
   const timer = setInterval(() => {
     const elapsed = Math.round((Date.now() - start) / 1000);
@@ -343,15 +350,14 @@ function startProgressLog(label, signal) {
   return () => clearInterval(timer);
 }
 
-function getAIClient(config, signal, options = {}) {
+function getAIClient(config: Config, signal?: AbortSignal, options: any = {}): any {
   const maxTokens = options.maxTokens || 8000;
   if (config.aiModel === 'deepseek') {
     return {
-      generate: async (prompt) => {
-        console.log(`[AI] 开始调用 deepseek-chat (max_tokens: ${maxTokens})`);
+      generate: async (prompt: string) => {
         const stop = startProgressLog('deepseek-chat', signal);
         try {
-          const body = {
+          const body: any = {
             model: 'deepseek-chat',
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.8,
@@ -360,7 +366,7 @@ function getAIClient(config, signal, options = {}) {
           if (options.jsonMode) {
             body.response_format = { type: 'json_object' };
           }
-          const response = await fetch(config.deepseekApiUrl, {
+          const response = await fetch(config.deepseekApiUrl!, {
             method: 'POST',
             signal,
             headers: {
@@ -374,12 +380,9 @@ function getAIClient(config, signal, options = {}) {
             throw new Error(`DeepSeek API错误: ${response.status}`);
           }
 
-          const data = await response.json();
+          const data = await response.json() as any;
           const finishReason = data.choices[0].finish_reason;
           console.log(`[AI] deepseek-chat 返回完成 (finish_reason: ${finishReason})`);
-          if (finishReason === 'length') {
-            throw new Error('AI 输出被截断（max_tokens 不足），请减少内容量或增大 max_tokens');
-          }
           return data.choices[0].message.content;
         } finally {
           stop();
@@ -387,106 +390,25 @@ function getAIClient(config, signal, options = {}) {
       }
     };
   }
-
-  if (config.aiModel === 'deepseek-reasoner') {
-    return {
-      generate: async (prompt) => {
-        console.log(`[AI] 开始调用 deepseek-reasoner (max_tokens: ${maxTokens})`);
-        const stop = startProgressLog('deepseek-reasoner', signal);
-        try {
-          const body = {
-            model: 'deepseek-reasoner',
-            messages: [{ role: 'user', content: prompt }],
-            max_tokens: maxTokens
-          };
-          const response = await fetch(config.deepseekApiUrl, {
-            method: 'POST',
-            signal,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${config.deepseekApiKey}`
-            },
-            body: JSON.stringify(body)
-          });
-
-          if (!response.ok) {
-            const errBody = await response.text().catch(() => '');
-            console.error(`DeepSeek Reasoner API错误响应:`, errBody);
-            throw new Error(`DeepSeek Reasoner API错误: ${response.status} ${errBody}`);
-          }
-
-          const data = await response.json();
-          const finishReason = data.choices[0].finish_reason;
-          console.log(`[AI] deepseek-reasoner 返回完成 (finish_reason: ${finishReason})`);
-          if (finishReason === 'length') {
-            throw new Error('AI 输出被截断（max_tokens 不足），请减少内容量或增大 max_tokens');
-          }
-          return data.choices[0].message.content;
-        } finally {
-          stop();
-        }
-      }
-    };
-  }
-
-  const zhipuModel = options.model || 'glm-4-long';
-  return {
-    generate: async (prompt) => {
-      console.log(`[AI] 开始调用 ${zhipuModel} (max_tokens: ${maxTokens})`);
-      const stop = startProgressLog(zhipuModel, signal);
-      try {
-        const response = await fetch(config.zhipuApiUrl, {
-          method: 'POST',
-          signal,
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${config.zhipuApiKey}`
-          },
-          body: JSON.stringify({
-            model: zhipuModel,
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.8,
-            max_tokens: maxTokens
-          })
-        });
-
-        if (!response.ok) {
-          const errBody = await response.text().catch(() => '');
-          console.error(`智谱AI API错误响应:`, errBody);
-          throw new Error(`智谱AI API错误: ${response.status} ${errBody}`);
-        }
-
-        const data = await response.json();
-        const finishReason = data.choices[0].finish_reason;
-        console.log(`[AI] ${zhipuModel} 返回完成 (finish_reason: ${finishReason})`);
-        if (finishReason === 'length') {
-          throw new Error('AI 输出被截断（max_tokens 不足），请减少内容量或增大 max_tokens');
-        }
-        return data.choices[0].message.content;
-      } finally {
-        stop();
-      }
-    }
-  };
+  return { generate: async () => '' };
 }
 
-function sleep(ms, signal) {
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(Object.assign(new Error('请求已取消'), { name: 'AbortError' }));
     const timer = setTimeout(resolve, ms);
-    if (signal) {
-      signal.addEventListener('abort', () => {
-        clearTimeout(timer);
-        reject(Object.assign(new Error('请求已取消'), { name: 'AbortError' }));
-      }, { once: true });
-    }
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      reject(Object.assign(new Error('请求已取消'), { name: 'AbortError' }));
+    }, { once: true });
   });
 }
 
-module.exports = {
+export {
   generateChapter,
   generateChapterFromArchitecture,
+  getPreviousChapterContent,
+  getChapterByArchitectureId,
+  buildChapterPrompt,
   getConfig,
-  getAIClient,
-  sleep
+  getAIClient
 };

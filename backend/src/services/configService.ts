@@ -1,9 +1,15 @@
-const { SystemConfig } = require('../models/sequelize');
+import { SystemConfig } from '../models/sequelize';
 
-async function findAll() {
+interface ConfigValue {
+  key: string;
+  value: any;
+  description: string | null;
+}
+
+async function findAll(): Promise<Record<string, any>> {
   const configs = await SystemConfig.findAll();
-  const result = {};
-  configs.forEach(c => {
+  const result: Record<string, any> = {};
+  configs.forEach((c: any) => {
     try {
       result[c.config_key] = JSON.parse(c.config_value);
     } catch {
@@ -13,7 +19,7 @@ async function findAll() {
   return result;
 }
 
-async function findByKey(key) {
+async function findByKey(key: string): Promise<ConfigValue | null> {
   const config = await SystemConfig.findOne({ where: { config_key: key } });
   if (!config) return null;
   try {
@@ -31,7 +37,7 @@ async function findByKey(key) {
   }
 }
 
-async function upsert(key, value, description) {
+async function upsert(key: string, value: any, description?: string): Promise<ConfigValue | null> {
   const valueStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
 
   const existing = await SystemConfig.findOne({ where: { config_key: key } });
@@ -51,8 +57,31 @@ async function upsert(key, value, description) {
   return findByKey(key);
 }
 
-module.exports = {
+async function getAll(): Promise<Record<string, any>> {
+  return findAll();
+}
+
+async function get(key: string): Promise<ConfigValue | null> {
+  return findByKey(key);
+}
+
+async function set(key: string, value: any, description?: string): Promise<ConfigValue | null> {
+  return upsert(key, value, description);
+}
+
+async function remove(key: string): Promise<boolean> {
+  const config = await SystemConfig.findOne({ where: { config_key: key } });
+  if (!config) return false;
+  await config.destroy();
+  return true;
+}
+
+export {
   findAll,
   findByKey,
-  upsert
+  upsert,
+  getAll,
+  get,
+  set,
+  remove
 };

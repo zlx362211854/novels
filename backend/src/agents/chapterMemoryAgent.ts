@@ -1,10 +1,22 @@
-const { SystemConfig } = require('../models/sequelize');
+import { SystemConfig } from '../models/sequelize';
 
-async function getConfig() {
+interface Config {
+  aiModel?: string;
+  zhipuApiKey?: string;
+  zhipuApiUrl?: string;
+  deepseekApiKey?: string;
+  deepseekApiUrl?: string;
+}
+
+interface ExtractOptions {
+  skipRepairOnParseFailure?: boolean;
+}
+
+async function getConfig(): Promise<Config> {
   const configs = await SystemConfig.findAll();
-  const configMap = {};
+  const configMap: any = {};
 
-  configs.forEach((config) => {
+  configs.forEach((config: any) => {
     try {
       configMap[config.config_key] = JSON.parse(config.config_value);
     } catch {
@@ -21,8 +33,8 @@ async function getConfig() {
   };
 }
 
-function buildMemoryPrompt({ chapter, novel, architecture }) {
-  return `你是一位长篇小说审校助手。请从下面章节中提取“硬逻辑记忆卡”，只记录明确出现或可以直接推出的事实，不要脑补。
+function buildMemoryPrompt({ chapter, novel, architecture }: any): string {
+  return `你是一位长篇小说审校助手。请从下面章节中提取"硬逻辑记忆卡"，只记录明确出现或可以直接推出的事实，不要脑补。
 
 ## 小说信息
 标题：${novel.title}
@@ -90,7 +102,7 @@ ${chapter.content || ''}
 6. summary、evidence、excerpt、thread 尽量简短，避免冗长`;
 }
 
-function formatArchitecture(architecture) {
+function formatArchitecture(architecture: any): string {
   if (!architecture) return '无架构设定';
 
   let info = `层级: ${architecture.level}\n标题: ${architecture.title}\n`;
@@ -101,7 +113,7 @@ function formatArchitecture(architecture) {
   return info;
 }
 
-function extractJson(content) {
+function extractJson(content: string): any {
   const jsonText = extractJsonObject(content);
   if (!jsonText) {
     throw new Error('记忆卡响应中缺少 JSON');
@@ -109,7 +121,7 @@ function extractJson(content) {
   return JSON.parse(repairCommonJsonIssues(jsonText));
 }
 
-function startProgressLog(label, signal) {
+function startProgressLog(label: string, signal?: AbortSignal): () => void {
   const start = Date.now();
   const timer = setInterval(() => {
     const elapsed = Math.round((Date.now() - start) / 1000);
@@ -119,15 +131,15 @@ function startProgressLog(label, signal) {
   return () => clearInterval(timer);
 }
 
-function getAIClient(config, signal) {
+function getAIClient(config: Config, signal?: AbortSignal): any {
   if (config.aiModel === 'deepseek') {
     return {
-      generate: async (prompt, options = {}) => {
+      generate: async (prompt: string, options: any = {}) => {
         const label = options.label || 'deepseek-chat (chapter-memory)';
         console.log(`[AI] 开始调用 ${label}`);
         const stop = startProgressLog(label, signal);
         try {
-          const response = await fetch(config.deepseekApiUrl, {
+          const response = await fetch(config.deepseekApiUrl!, {
             method: 'POST',
             signal,
             headers: {
@@ -146,7 +158,7 @@ function getAIClient(config, signal) {
             throw new Error(`DeepSeek API错误: ${response.status}`);
           }
 
-          const data = await response.json();
+          const data = await response.json() as any;
           console.log(`[AI] ${label} 返回完成`);
           return data.choices[0].message.content;
         } finally {
@@ -157,12 +169,12 @@ function getAIClient(config, signal) {
   }
 
   return {
-    generate: async (prompt, options = {}) => {
+    generate: async (prompt: string, options: any = {}) => {
       const label = options.label || 'glm-4 (chapter-memory)';
       console.log(`[AI] 开始调用 ${label}`);
       const stop = startProgressLog(label, signal);
       try {
-        const response = await fetch(config.zhipuApiUrl, {
+        const response = await fetch(config.zhipuApiUrl!, {
           method: 'POST',
           signal,
           headers: {
@@ -181,7 +193,7 @@ function getAIClient(config, signal) {
           throw new Error(`智谱AI API错误: ${response.status}`);
         }
 
-        const data = await response.json();
+        const data = await response.json() as any;
         console.log(`[AI] ${label} 返回完成`);
         return data.choices[0].message.content;
       } finally {
@@ -191,7 +203,7 @@ function getAIClient(config, signal) {
   };
 }
 
-async function extractMemoryCard({ chapter, novel, architecture }, signal, options = {}) {
+async function extractMemoryCard({ chapter, novel, architecture }: any, signal?: AbortSignal, options: ExtractOptions = {}): Promise<any> {
   const config = await getConfig();
   const aiClient = getAIClient(config, signal);
   const prompt = buildMemoryPrompt({ chapter, novel, architecture });
@@ -202,7 +214,7 @@ async function extractMemoryCard({ chapter, novel, architecture }, signal, optio
   });
   try {
     return extractJson(response);
-  } catch (error) {
+  } catch (error: any) {
     console.error('解析记忆卡失败:', error.message);
     console.error('原始记忆卡输出片段:', snippetForLog(response));
     if (options.skipRepairOnParseFailure) {
@@ -216,7 +228,7 @@ async function extractMemoryCard({ chapter, novel, architecture }, signal, optio
     });
     try {
       return extractJson(repaired);
-    } catch (repairError) {
+    } catch (repairError: any) {
       console.error('解析修复后的记忆卡失败:', repairError.message);
       console.error('修复后记忆卡输出片段:', snippetForLog(repaired));
       throw repairError;
@@ -224,16 +236,16 @@ async function extractMemoryCard({ chapter, novel, architecture }, signal, optio
   }
 }
 
-function normalizeJsonLikeString(content) {
+function normalizeJsonLikeString(content: string): string {
   return content
     .replace(/\uff0c/g, ',')
     .replace(/\uff1a/g, ':');
 }
 
-function repairCommonJsonIssues(content) {
+function repairCommonJsonIssues(content: string): string {
   const normalized = normalizeJsonLikeString(stripCodeFences(content));
   const lines = normalized.split('\n');
-  const repairedLines = [];
+  const repairedLines: string[] = [];
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -251,20 +263,20 @@ function repairCommonJsonIssues(content) {
     .replace(/,\s*([}\]])/g, '$1');
 }
 
-function stripCodeFences(content) {
+function stripCodeFences(content: string): string {
   return content.replace(/```(?:json)?/g, '').trim();
 }
 
-function startsWithJsonKey(line) {
+function startsWithJsonKey(line: string): boolean {
   return /^"[^"]+"\s*:/.test(line);
 }
 
-function endsWithJsonValue(line) {
+function endsWithJsonValue(line: string): boolean {
   const trimmed = line.trim();
   return /("|\]|\}|null|true|false|\d)\s*$/.test(trimmed);
 }
 
-function extractJsonObject(content) {
+function extractJsonObject(content: string): string {
   const text = stripCodeFences(content);
   const start = text.indexOf('{');
   if (start === -1) return '';
@@ -304,12 +316,12 @@ function extractJsonObject(content) {
   return text.slice(start);
 }
 
-function snippetForLog(content) {
+function snippetForLog(content: string): string {
   return (content || '').slice(0, 800);
 }
 
-function buildRepairPrompt(rawResult) {
-  return `请把下面这段“本来想输出为JSON，但格式损坏了”的文本，修复成合法 JSON。
+function buildRepairPrompt(rawResult: string): string {
+  return `请把下面这段"本来想输出为JSON，但格式损坏了"的文本，修复成合法 JSON。
 
 要求：
 1. 只能输出 JSON
@@ -334,7 +346,7 @@ function buildRepairPrompt(rawResult) {
 ${rawResult}`;
 }
 
-module.exports = {
+export {
   extractMemoryCard,
   extractJson
 };
