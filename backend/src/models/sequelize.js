@@ -125,6 +125,9 @@ const Chapter = sequelize.define('Chapter', {
   review_result: {
     type: DataTypes.TEXT
   },
+  publish_result: {
+    type: DataTypes.TEXT
+  },
   status: {
     type: DataTypes.STRING,
     defaultValue: 'draft'
@@ -291,34 +294,6 @@ const SystemConfig = sequelize.define('SystemConfig', {
   updatedAt: 'updated_at'
 });
 
-const PromptTemplate = sequelize.define('PromptTemplate', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
-  },
-  name: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  template: {
-    type: DataTypes.TEXT,
-    allowNull: false
-  },
-  description: {
-    type: DataTypes.TEXT
-  },
-  is_default: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0
-  }
-}, {
-  tableName: 'prompt_templates',
-  timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at'
-});
-
 Novel.hasMany(Architecture, { foreignKey: 'novel_id', as: 'architectures', onDelete: 'CASCADE' });
 Architecture.belongsTo(Novel, { foreignKey: 'novel_id', as: 'novel' });
 
@@ -350,37 +325,6 @@ async function initDatabase() {
   await sequelize.sync({ force: false, hooks: false });
   await ensureLegacySchema();
 
-  const defaultTemplate = await PromptTemplate.findOne({ where: { is_default: 1 } });
-  if (!defaultTemplate) {
-    await PromptTemplate.create({
-      name: '默认章节生成模板',
-      template: `你是一位专业的网络小说作家。请根据以下信息生成章节内容：
-
-## 小说基本信息
-标题：{{novel_title}}
-类型：{{genre}}
-
-## 架构信息
-{{architecture_info}}
-
-## 章节要求
-章节标题：{{chapter_title}}
-章节序号：{{chapter_number}}
-
-## 创作要求
-1. 内容需要符合整体故事架构和情节大纲
-2. 保持人物性格与设定一致
-3. 遵循世界观设定
-4. 情感基调：{{emotional_tone}}
-5. 字数要求：2000-5000字
-6. 使用Markdown格式输出
-
-请开始创作：`,
-      description: '系统默认的章节生成提示词模板',
-      is_default: 1
-    });
-  }
-
   console.log('数据库初始化完成 (Sequelize)');
 }
 
@@ -390,6 +334,13 @@ async function ensureLegacySchema() {
 
   if (!chapterColumns.review_result) {
     await queryInterface.addColumn('chapters', 'review_result', {
+      type: DataTypes.TEXT,
+      allowNull: true
+    });
+  }
+
+  if (!chapterColumns.publish_result) {
+    await queryInterface.addColumn('chapters', 'publish_result', {
       type: DataTypes.TEXT,
       allowNull: true
     });
@@ -405,6 +356,5 @@ module.exports = {
   ChapterVersion,
   ScheduledTask,
   SystemConfig,
-  PromptTemplate,
   initDatabase
 };

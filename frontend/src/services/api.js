@@ -46,7 +46,7 @@ export const chapterApi = {
   create: (novelId, data) => api.post(`/novels/${novelId}/chapters`, data),
   update: (id, data) => api.put(`/chapters/${id}`, data),
   delete: (id) => api.delete(`/chapters/${id}`),
-  generate: (id, templateId) => api.post(`/chapters/${id}/generate`, { templateId }),
+  generate: (id) => api.post(`/chapters/${id}/generate`),
   regenerate: (id) => api.post(`/chapters/${id}/regenerate`),
   review: (id) => api.post(`/chapters/${id}/review`),
   revise: (id, reviewResult) => api.post(`/chapters/${id}/revise`, { reviewResult }),
@@ -65,12 +65,11 @@ export const configApi = {
   update: (key, value, description) => api.put(`/configs/${key}`, { value, description }),
 };
 
-export const templateApi = {
-  getAll: () => api.get('/templates'),
-  create: (data) => api.post('/templates', data),
-  update: (id, data) => api.put(`/templates/${id}`, data),
-  delete: (id) => api.delete(`/templates/${id}`),
-  setDefault: (id) => api.post(`/templates/${id}/set-default`),
+export const publishApi = {
+  publish: (chapterId, platforms, mode = 'publish') => api.post(`/publish/${chapterId}`, { platforms, mode }),
+  login: (platform) => api.post(`/publish/login/${platform}`),
+  status: (platform) => api.get(`/publish/status/${platform}`),
+  platforms: () => api.get('/publish/platforms'),
 };
 
 export const exportApi = {

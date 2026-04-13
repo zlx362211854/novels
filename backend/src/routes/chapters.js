@@ -1,8 +1,24 @@
 const express = require('express');
-const router = express.Router();
-const chapterService = require('../services/chapterService');
-const aiService = require('../services/aiService');
-const { Novel } = require('../models/sequelize');
+const router = express.Router({ mergeParams: true });
+
+router.post('/:id/revise', async (req, res) => {
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      console.log('[abort] 客户端断开 → chapter/revise 已中止');
+      ac.abort();
+    }
+  });
+  try {
+    req.setTimeout(0);
+    const { reviewResult } = req.body;
+    const result = await chapterService.reviseChapter(req.params.id, reviewResult, ac.signal);
+    res.json(result);
+  } catch (error) {
+    if (ac.signal.aborted) return;
+    res.status(500).json({ error: error.message });
+  }
+});
 
 router.get('/:id', async (req, res) => {
   try {
@@ -18,13 +34,12 @@ router.get('/:id', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const { title, content, status, architectureId } = req.body;
-    const chapter = await chapterService.update(req.params.id, {
-      title,
-      content,
-      status,
-      architectureId
-    });
+    const { title, content, status, architectureId, regenerateMemory = true } = req.body;
+    const chapter = await chapterService.update(
+      req.params.id,
+      { title, content, status, architectureId },
+      { regenerateMemory }
+    );
     if (!chapter) {
       return res.status(404).json({ error: '章节不存在' });
     }
@@ -55,8 +70,8 @@ router.post('/:id/generate', async (req, res) => {
     }
   });
   try {
-    const { templateId } = req.body;
-    const result = await chapterService.generate(req.params.id, templateId, ac.signal);
+    req.setTimeout(0);
+    const result = await chapterService.generate(req.params.id, ac.signal);
     res.json(result);
   } catch (error) {
     if (ac.signal.aborted) return;
@@ -75,6 +90,7 @@ router.post('/:id/regenerate', async (req, res) => {
     }
   });
   try {
+    req.setTimeout(0);
     const chapter = await chapterService.findById(req.params.id);
     if (!chapter) {
       return res.status(404).json({ error: '章节不存在' });
@@ -117,6 +133,7 @@ router.post('/:id/review', async (req, res) => {
     }
   });
   try {
+    req.setTimeout(0);
     const result = await chapterService.reviewChapter(req.params.id, ac.signal);
     res.json(result);
   } catch (error) {
@@ -134,6 +151,7 @@ router.post('/:id/revise', async (req, res) => {
     }
   });
   try {
+    req.setTimeout(0);
     const { reviewResult } = req.body;
     const result = await chapterService.reviseChapter(req.params.id, reviewResult, ac.signal);
     res.json(result);

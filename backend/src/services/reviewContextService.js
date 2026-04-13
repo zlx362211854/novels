@@ -112,6 +112,28 @@ async function buildReviewContext(chapterId, signal, preloaded = {}) {
       : null
   );
 
+  const fullArchitecture = await Architecture.findOne({
+    where: { novel_id: novel.id, level: 'full' }
+  });
+
+  if (fullArchitecture && fullArchitecture.world_setting && architecture) {
+    try {
+      const worldSetting = typeof fullArchitecture.world_setting === 'string'
+        ? JSON.parse(fullArchitecture.world_setting)
+        : fullArchitecture.world_setting;
+      architecture.world_setting = JSON.stringify(worldSetting);
+    } catch {}
+  }
+
+  if (fullArchitecture && fullArchitecture.characters && architecture) {
+    try {
+      const characters = typeof fullArchitecture.characters === 'string'
+        ? JSON.parse(fullArchitecture.characters)
+        : fullArchitecture.characters;
+      architecture.characters = JSON.stringify(characters);
+    } catch {}
+  }
+
   const currentMemory = preloaded.currentMemory ?? await chapterMemoryService.upsertForChapter(chapterId, signal);
   const allMemories = await chapterMemoryService.findByNovelId(chapter.novel_id);
   const historicalMemories = allMemories.filter((memory) => memory.chapter_id !== chapter.id);

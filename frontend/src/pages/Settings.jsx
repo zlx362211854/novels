@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
-import { configApi, templateApi } from '../services/api';
+import { configApi, publishApi } from '../services/api';
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import { PageShell, SectionCard } from '../components/ui/PageShell';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Textarea } from '../components/ui/textarea';
 import { Badge } from '../components/ui/badge';
 import {
   Select,
@@ -14,21 +13,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../components/ui/dialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Settings as SettingsIcon, FileText, Plus, Pencil, Trash2, Star, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Settings as SettingsIcon, Eye, EyeOff, Loader2, Globe, LogIn } from 'lucide-react';
 
 function Settings() {
   const feedback = useFeedback();
-  const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -39,10 +29,11 @@ function Settings() {
   });
   const [showZhipuKey, setShowZhipuKey] = useState(false);
   const [showDeepseekKey, setShowDeepseekKey] = useState(false);
-  const [showTemplateEditor, setShowTemplateEditor] = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState(null);
-  const [templateForm, setTemplateForm] = useState({ name: '', template: '', description: '' });
-  const [templateSaving, setTemplateSaving] = useState(false);
+  const [publishPlatforms, setPublishPlatforms] = useState([]);
+  const [publishConfig, setPublishConfig] = useState({});
+  const [agentBrowserPath, setAgentBrowserPath] = useState('agent-browser');
+  const [publishSaving, setPublishSaving] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -50,17 +41,24 @@ function Settings() {
 
   const loadData = async () => {
     try {
-      const [configRes, templateRes] = await Promise.all([
+      const [configRes] = await Promise.all([
         configApi.getAll(),
-        templateApi.getAll(),
       ]);
-      setTemplates(templateRes.data);
       setEditForm({
         aiModel: configRes.data.aiModel || 'zhipu',
         zhipuApiKey: configRes.data.zhipuApiKey || '',
         deepseekApiKey: configRes.data.deepseekApiKey || '',
         reviewStrictness: configRes.data.reviewStrictness || 'strict',
       });
+      setAgentBrowserPath(configRes.data.agentBrowserPath || 'agent-browser');
+
+      const publishPlatformConfig = configRes.data.publishPlatforms || {};
+      setPublishConfig(publishPlatformConfig);
+
+      try {
+        const platformsRes = await publishApi.platforms();
+        setPublishPlatforms(platformsRes.data);
+      } catch { /* 发布平台加载失败不影响主流程 */ }
     } catch (error) {
       console.error('加载数据失败:', error);
       feedback.error('加载设置失败，请稍后重试。');
@@ -87,93 +85,6 @@ function Settings() {
     }
   };
 
-  const handleCreateTemplate = async (e) => {
-    e.preventDefault();
-    setTemplateSaving(true);
-    try {
-      await templateApi.create(templateForm);
-      setTemplateForm({ name: '', template: '', description: '' });
-      setShowTemplateEditor(false);
-      loadData();
-      feedback.success('模板创建成功！');
-    } catch (error) {
-      console.error('创建模板失败:', error);
-      feedback.error('创建模板失败，请稍后重试。');
-    } finally {
-      setTemplateSaving(false);
-    }
-  };
-
-  const handleUpdateTemplate = async (e) => {
-    e.preventDefault();
-    setTemplateSaving(true);
-    try {
-      await templateApi.update(editingTemplate.id, templateForm);
-      setEditingTemplate(null);
-      setTemplateForm({ name: '', template: '', description: '' });
-      loadData();
-      feedback.success('模板更新成功！');
-    } catch (error) {
-      console.error('更新模板失败:', error);
-      feedback.error('更新模板失败，请稍后重试。');
-    } finally {
-      setTemplateSaving(false);
-    }
-  };
-
-  const handleDeleteTemplate = async (id) => {
-    const confirmed = await feedback.confirm({
-      title: '删除模板',
-      message: '确定要删除这个模板吗？此操作无法撤销。',
-      confirmText: '删除',
-      cancelText: '取消',
-      variant: 'danger',
-    });
-    if (!confirmed) return;
-
-    try {
-      await templateApi.delete(id);
-      loadData();
-      feedback.success('模板已删除。');
-    } catch (error) {
-      console.error('删除模板失败:', error);
-      feedback.error('删除模板失败，请稍后重试。');
-    }
-  };
-
-  const handleSetDefaultTemplate = async (id) => {
-    try {
-      await templateApi.setDefault(id);
-      loadData();
-      feedback.success('已设置为默认模板。');
-    } catch (error) {
-      console.error('设置默认模板失败:', error);
-      feedback.error('设置默认模板失败，请稍后重试。');
-    }
-  };
-
-  const startEditTemplate = (template) => {
-    setEditingTemplate(template);
-    setTemplateForm({
-      name: template.name,
-      template: template.template,
-      description: template.description || '',
-    });
-    setShowTemplateEditor(false);
-  };
-
-  const openCreateTemplate = () => {
-    setEditingTemplate(null);
-    setTemplateForm({ name: '', template: '', description: '' });
-    setShowTemplateEditor(true);
-  };
-
-  const closeTemplateEditor = () => {
-    setShowTemplateEditor(false);
-    setEditingTemplate(null);
-    setTemplateForm({ name: '', template: '', description: '' });
-  };
-
   if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
@@ -186,7 +97,7 @@ function Settings() {
     <PageShell
       eyebrow="Settings"
       title="系统设置"
-      description="配置 AI 模型、API 密钥和提示词模板"
+      description="配置 AI 模型和 API 密钥"
     >
       <Tabs defaultValue="ai-config" className="space-y-6">
         <TabsList>
@@ -194,9 +105,9 @@ function Settings() {
             <SettingsIcon className="h-4 w-4" />
             AI 配置
           </TabsTrigger>
-          <TabsTrigger value="templates" className="gap-1.5">
-            <FileText className="h-4 w-4" />
-            提示词模板
+          <TabsTrigger value="publish-config" className="gap-1.5">
+            <Globe className="h-4 w-4" />
+            发布平台
           </TabsTrigger>
         </TabsList>
 
@@ -295,141 +206,121 @@ function Settings() {
           </SectionCard>
         </TabsContent>
 
-        <TabsContent value="templates">
-          <SectionCard
-            title="提示词模板管理"
-            description="创建和管理 AI 生成内容的提示词模板"
-            actions={
-              <Button onClick={openCreateTemplate} size="sm">
-                <Plus className="mr-1.5 h-4 w-4" />
-                创建模板
+        <TabsContent value="publish-config">
+          <SectionCard title="发布平台配置" description="配置 agent-browser 路径和各平台发布参数">
+            <div className="grid gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="agent-browser-path">agent-browser 路径</Label>
+                <Input
+                  id="agent-browser-path"
+                  value={agentBrowserPath}
+                  onChange={(e) => setAgentBrowserPath(e.target.value)}
+                  placeholder="agent-browser"
+                />
+                <p className="text-xs text-muted-foreground">
+                  如果已全局安装可保持默认值，否则填写完整路径
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {publishPlatforms.map(p => {
+                  const config = publishConfig[p.key] || {};
+                  return (
+                    <Card key={p.key}>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-base">{p.name}</CardTitle>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={p.loggedIn ? 'default' : 'secondary'} className="text-xs">
+                              {p.loggedIn ? '已登录' : '未登录'}
+                            </Badge>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                setLoggingIn(p.key);
+                                try {
+                                  await publishApi.login(p.key);
+                                  const res = await publishApi.platforms();
+                                  setPublishPlatforms(res.data);
+                                  feedback.success(`${p.name} 浏览器已关闭，登录状态已更新`);
+                                } catch (err) {
+                                  feedback.error(err.response?.data?.error || '登录失败');
+                                } finally {
+                                  setLoggingIn(null);
+                                }
+                              }}
+                              disabled={loggingIn === p.key}
+                            >
+                              {loggingIn === p.key ? (
+                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <LogIn className="mr-1.5 h-3.5 w-3.5" />
+                              )}
+                              登录
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div className="flex items-center gap-3">
+                          <Label className="w-16 shrink-0">启用</Label>
+                          <input
+                            type="checkbox"
+                            checked={config.enabled || false}
+                            onChange={(e) => setPublishConfig(prev => ({
+                              ...prev,
+                              [p.key]: { ...prev[p.key], enabled: e.target.checked }
+                            }))}
+                            className="h-4 w-4 rounded border-input"
+                          />
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Label className="w-16 shrink-0">作品 ID</Label>
+                          <Input
+                            value={config.workId || ''}
+                            onChange={(e) => setPublishConfig(prev => ({
+                              ...prev,
+                              [p.key]: { ...prev[p.key], workId: e.target.value }
+                            }))}
+                            placeholder="平台上的作品/书籍 ID"
+                            className="flex-1"
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+
+                {publishPlatforms.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    加载平台列表失败或无可用平台
+                  </p>
+                )}
+              </div>
+
+              <Button
+                onClick={async () => {
+                  setPublishSaving(true);
+                  try {
+                    await configApi.update('agentBrowserPath', agentBrowserPath, 'agent-browser CLI 路径');
+                    await configApi.update('publishPlatforms', publishConfig, '发布平台配置');
+                    feedback.success('发布配置已保存');
+                  } catch {
+                    feedback.error('保存失败');
+                  } finally {
+                    setPublishSaving(false);
+                  }
+                }}
+                disabled={publishSaving}
+              >
+                {publishSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                保存发布配置
               </Button>
-            }
-          >
-            {templates.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <FileText className="mx-auto h-12 w-12 opacity-50" />
-                <p className="mt-2">还没有模板，点击上方按钮创建</p>
-              </div>
-            ) : (
-              <div className="grid gap-3">
-                {templates.map((template) => (
-                  <Card key={template.id} className="shadow-none">
-                    <CardHeader className="pb-2">
-                      <div className="flex items-start justify-between">
-                        <div className="space-y-1">
-                          <CardTitle className="text-base flex items-center gap-2">
-                            {template.name}
-                            {template.is_default && (
-                              <Badge variant="secondary" className="text-xs">
-                                <Star className="mr-1 h-3 w-3" />
-                                默认
-                              </Badge>
-                            )}
-                          </CardTitle>
-                          {template.description && (
-                            <CardDescription>{template.description}</CardDescription>
-                          )}
-                        </div>
-                        <div className="flex gap-1">
-                          {!template.is_default && (
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              onClick={() => handleSetDefaultTemplate(template.id)}
-                              title="设为默认"
-                            >
-                              <Star className="h-4 w-4" />
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={() => startEditTemplate(template)}
-                            title="编辑"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          {!template.is_default && (
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              onClick={() => handleDeleteTemplate(template.id)}
-                              title="删除"
-                              className="text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </CardHeader>
-                  </Card>
-                ))}
-              </div>
-            )}
+            </div>
           </SectionCard>
         </TabsContent>
       </Tabs>
-
-      {/* Template Editor Dialog */}
-      <Dialog
-        open={showTemplateEditor || !!editingTemplate}
-        onOpenChange={(open) => !open && closeTemplateEditor()}
-      >
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{editingTemplate ? '编辑模板' : '创建模板'}</DialogTitle>
-            <DialogDescription>
-              {editingTemplate ? '修改模板内容和描述' : '创建一个新的提示词模板'}
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            onSubmit={editingTemplate ? handleUpdateTemplate : handleCreateTemplate}
-            className="space-y-4"
-          >
-            <div className="space-y-2">
-              <Label htmlFor="template-name">模板名称 *</Label>
-              <Input
-                id="template-name"
-                value={templateForm.name}
-                onChange={(e) => setTemplateForm({ ...templateForm, name: e.target.value })}
-                placeholder="例如：章节生成模板"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="template-content">模板内容 *</Label>
-              <Textarea
-                id="template-content"
-                value={templateForm.template}
-                onChange={(e) => setTemplateForm({ ...templateForm, template: e.target.value })}
-                placeholder="输入提示词模板内容..."
-                className="min-h-[200px] font-mono text-sm"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="template-desc">描述</Label>
-              <Input
-                id="template-desc"
-                value={templateForm.description}
-                onChange={(e) => setTemplateForm({ ...templateForm, description: e.target.value })}
-                placeholder="简要描述这个模板的用途"
-              />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={closeTemplateEditor}>
-                取消
-              </Button>
-              <Button type="submit" disabled={templateSaving}>
-                {templateSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {editingTemplate ? '保存' : '创建'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </PageShell>
   );
 }

@@ -51,7 +51,7 @@ ${formatArchitecture(architecture)}
 ${formatJson(reviewResult)}
 
 修订规则：
-1. 只修复 issues 里列出的问题
+1. issues 和 notes 里列出的问题都需要修复
 2. 尽量保留没有问题的段落、节奏和措辞
 3. 不要新增新人物、新设定、新事件
 4. 不要提前剧透后续章节

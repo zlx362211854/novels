@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { architectureApi, chapterApi } from '../services/api';
+import PublishDialog from '../components/PublishDialog';
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import JsonField from '../components/ui/JsonField';
 import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
@@ -28,7 +29,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, Plus, Pencil, Trash2, Sparkles, FileText, ArrowLeft, ChevronDown, ChevronUp, Eye, RefreshCw } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, Sparkles, FileText, ArrowLeft, ChevronDown, ChevronUp, Eye, RefreshCw, Upload } from 'lucide-react';
 
 function ExpandableText({ text, maxLength = 120, className = '' }) {
   const [expanded, setExpanded] = useState(false);
@@ -81,6 +82,7 @@ function ArchitectureManager() {
   const [previewChapterNumber, setPreviewChapterNumber] = useState(1);
   const [savingPreview, setSavingPreview] = useState(false);
   const [formData, setFormData] = useState(initialForm);
+  const [publishTarget, setPublishTarget] = useState(null); // { chapterId, chapterTitle, publishResult }
   const [expandedVolumes, setExpandedVolumes] = useState({});
   const [showReviewDialog, setShowReviewDialog] = useState(false);
   const [showReviewConfirmDialog, setShowReviewConfirmDialog] = useState(false);
@@ -709,6 +711,21 @@ function ArchitectureManager() {
                                         </p>
                                       </div>
                                       <div className="flex items-center gap-1.5 shrink-0">
+                                        {existingChapter && (
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8"
+                                            title="发布章节"
+                                            onClick={() => setPublishTarget({
+                                              chapterId: existingChapter.id,
+                                              chapterTitle: existingChapter.title || chapterArch.title,
+                                              publishResult: existingChapter.publish_result,
+                                            })}
+                                          >
+                                            <Upload className="h-4 w-4" />
+                                          </Button>
+                                        )}
                                         {existingChapter ? (
                                           <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
                                             <Link to={`/chapters/${existingChapter.id}`}>
@@ -884,10 +901,11 @@ function ArchitectureManager() {
 
             <div className="space-y-1.5 sm:max-w-xs">
               <Label className="text-xs">情感基调</Label>
-              <Input
+              <Textarea
                 value={formData.emotionalTone}
                 onChange={(event) => setFormData({ ...formData, emotionalTone: event.target.value })}
-                className="h-8 text-sm"
+                rows={4}
+                className="text-sm resize-none"
                 placeholder="热血 / 温柔 / 压迫 / 悬疑"
               />
             </div>
@@ -1260,6 +1278,13 @@ function ArchitectureManager() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <PublishDialog
+        open={!!publishTarget}
+        onClose={() => setPublishTarget(null)}
+        chapterId={publishTarget?.chapterId}
+        chapterTitle={publishTarget?.chapterTitle}
+        publishResult={publishTarget?.publishResult}
+      />
     </PageShell>
   );
 }

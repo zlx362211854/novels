@@ -1,12 +1,29 @@
-const { Novel, Architecture, Chapter, SystemConfig, PromptTemplate } = require('../models/sequelize');
+const { Novel, Architecture, Chapter, ChapterMemory, SystemConfig } = require('../models/sequelize');
 
 async function generateChapter(params, signal) {
-  const { novel, chapter, architecture, templateId } = params;
+  const { novel, chapter, architecture } = params;
 
   const config = await getConfig();
-  const template = await getTemplate(templateId);
+  const fullArch = await Architecture.findOne({
+    where: { novel_id: novel.id, level: 'full' }
+  });
 
-  const prompt = buildPrompt(template, { novel, chapter, architecture });
+  // 取当前章节所属的卷架构（通过 architecture.parent_id 或 architecture 本身）
+  let volumeArch = null;
+  if (architecture) {
+    if (architecture.level === 'chapter' && architecture.parent_id) {
+      volumeArch = await Architecture.findByPk(architecture.parent_id);
+    } else if (architecture.level === 'volume') {
+      volumeArch = architecture;
+    }
+  }
+
+  // 取上一章内容（与 generateChapterFromArchitecture 保持一致）
+  const prevChapterContent = architecture?.id
+    ? await getPreviousChapterContent(architecture.id, architecture.parent_id)
+    : null;
+
+  const prompt = buildChapterPrompt(novel, architecture || chapter, volumeArch, fullArch, prevChapterContent);
 
   const aiClient = getAIClient(config, signal);
 
@@ -113,9 +130,21 @@ async function getChapterByArchitectureId(archId) {
   const content = prevChapter.content;
   const lastPart = content.length > 800 ? content.slice(-800) : content;
 
+  let prevMemory = null;
+  if (prevChapter.id) {
+    const memoryRecord = await ChapterMemory.findOne({
+      where: { chapter_id: prevChapter.id }
+    });
+    if (memoryRecord && memoryRecord.memory_data) {
+      prevMemory = memoryRecord.memory_data;
+    }
+  }
+
   return {
     title: prevChapter.title,
-    endingContent: lastPart
+    chapterNumber: prevChapter.chapter_number,
+    endingContent: lastPart,
+    memory: prevMemory
   };
 }
 
@@ -125,13 +154,38 @@ function buildChapterPrompt(novel, chapterArch, volumeArch, fullArch, prevChapte
 类型：${novel.genre || '未指定'}
 `;
 
-  if (fullArch && fullArch.plot_outline) {
-    context += `\n## 全本架构\n${fullArch.plot_outline}\n`;
+  let fullArchContext = '';
+  if (fullArch) {
+    fullArchContext = `\n## 全本架构\n`;
+    if (fullArch.plot_outline) fullArchContext += `\n### 情节大纲\n${fullArch.plot_outline}\n`;
+    if (fullArch.characters) {
+      try {
+        const chars = JSON.parse(fullArch.characters);
+        fullArchContext += `\n### 人物设定\n${JSON.stringify(chars, null, 2)}\n`;
+      } catch {
+        fullArchContext += `\n### 人物设定\n${fullArch.characters}\n`;
+      }
+    }
+    if (fullArch.world_setting) {
+      try {
+        const world = JSON.parse(fullArch.world_setting);
+        fullArchContext += `\n### 世界观\n${JSON.stringify(world, null, 2)}\n`;
+      } catch {
+        fullArchContext += `\n### 世界观\n${fullArch.world_setting}\n`;
+      }
+    }
+    if (fullArch.emotional_tone) {
+      fullArchContext += `\n### 情感基调\n${fullArch.emotional_tone}\n`;
+    }
+  }
+
+  if (fullArch) {
+    context += fullArchContext;
   }
 
   if (volumeArch) {
     context += `\n## 卷架构：${volumeArch.title}\n`;
-    if (volumeArch.plot_outline) context += `${volumeArch.plot_outline}\n`;
+    if (volumeArch.plot_outline) context += `情节大纲：${volumeArch.plot_outline}\n`;
     if (volumeArch.characters) {
       try {
         const chars = JSON.parse(volumeArch.characters);
@@ -140,20 +194,41 @@ function buildChapterPrompt(novel, chapterArch, volumeArch, fullArch, prevChapte
         context += `人物设定：${volumeArch.characters}\n`;
       }
     }
+    if (volumeArch.world_setting) {
+      try {
+        const world = JSON.parse(volumeArch.world_setting);
+        context += `世界观：${JSON.stringify(world, null, 2)}\n`;
+      } catch {
+        context += `世界观：${volumeArch.world_setting}\n`;
+      }
+    }
+    if (volumeArch.emotional_tone) {
+      context += `情感基调：${volumeArch.emotional_tone}\n`;
+    }
   }
 
   let prevChapterInfo = '';
   if (prevChapterContent) {
+    let memorySection = '';
+    if (prevChapterContent.memory && prevChapterContent.memory.facts && prevChapterContent.memory.facts.length > 0) {
+      const facts = prevChapterContent.memory.facts;
+      const keyFacts = facts.slice(0, 10).map(f => `- ${f.subject} ${f.predicate} ${f.object}`).join('\n');
+      memorySection = `
+**关键事实：**
+${keyFacts}
+`;
+    }
+
     prevChapterInfo = `
 ## 上一章结尾（参考）
-章节：${prevChapterContent.title}
+章节：${prevChapterContent.title}（第${prevChapterContent.chapterNumber || '?'}章）
 ---
 ${prevChapterContent.endingContent}
 ---
+${memorySection}
 **衔接说明：**
 - 如果上一章结尾是动作/对话/场景的中断点（如：走进房间、战斗中、对话进行中），本章开头需要严格衔接，保持空间、时间、人物状态的连续性
 - 如果上一章结尾是情节的自然收束（如：事件结束、场景转换提示），本章可以根据架构内容概括灵活安排时间跳跃或场景切换
-- 请根据上一章结尾的具体内容和本章架构的内容概括，自行判断是否需要严格衔接
 `;
   }
 
@@ -161,6 +236,17 @@ ${prevChapterContent.endingContent}
 标题：${chapterArch.title}`;
   if (chapterArch.plot_outline) {
     chapterInfo += `\n内容概括：${chapterArch.plot_outline}`;
+  }
+  if (chapterArch.world_setting) {
+    try {
+      const world = JSON.parse(chapterArch.world_setting);
+      chapterInfo += `\n世界观设定：${JSON.stringify(world, null, 2)}`;
+    } catch {
+      chapterInfo += `\n世界观设定：${chapterArch.world_setting}`;
+    }
+  }
+  if (chapterArch.emotional_tone) {
+    chapterInfo += `\n情感基调：${chapterArch.emotional_tone}`;
   }
 
   return `你是一位专业的网络小说作家。请根据以下架构信息，撰写章节正文。
@@ -174,11 +260,12 @@ ${chapterInfo}
 ## 写作要求
 1. 字数要求：4500-5500字，内容要充实丰富
 2. 严格根据本章架构的内容概括展开描写，不得超出架构范围
-3. 注意情节的连贯性和节奏感
-4. 人物对话要符合性格特点
-5. 场景描写要生动具体
-6. ${prevChapterContent ? '根据上一章结尾情况，灵活处理章节衔接（参考衔接说明）' : '注意故事的开篇吸引力'}
-7. 只输出正文内容，不要标题、章节号等
+3. 严格遵循全本架构中的世界观设定（如时代、地理、规则等），不得出现与之冲突的内容
+4. 注意情节的连贯性和节奏感
+5. 人物对话要符合性格特点
+6. 场景描写要生动具体
+7. ${prevChapterContent ? '根据上一章结尾情况，灵活处理章节衔接（参考衔接说明）' : '注意故事的开篇吸引力'}
+8. 只输出正文内容，不要标题、章节号等
 
 ## 内容丰富度要求
 1. **内心活动**：深入描写人物的心理变化、情感波动、思想斗争，让读者理解人物的动机
@@ -189,12 +276,12 @@ ${chapterInfo}
 6. **节奏变化**：张弛有度，有紧张的高潮，也有舒缓的过渡，避免流水账式叙述
 7. **感官体验**：调动视觉、听觉、嗅觉、触觉等感官，让读者身临其境
 
-## 严格禁止（防止内容越界）
-1. **禁止写入本章架构未提及的人物**：如果某人物在本章架构中没有出现，绝对不能在本章提及或描写
-2. **禁止写入本章架构未提及的事件**：只能写本章内容概括中明确提到的情节，不得"预告"或"暗示"后续章节的内容
-3. **禁止人物"预知"未来**：主角不能想起、梦到、预感本章架构中未发生的事情
-4. **禁止引用未发生的对话**：不能让人物回忆或提及本章架构中未出现的对话内容
-5. **禁止"伏笔"式越界**：不要在本章埋下架构中未提及的伏笔或暗示
+## 内容边界要求
+1. **以本章架构为主轴**：本章的核心情节必须严格围绕架构中的内容概括展开，不得偏离主线
+2. **配角与次要人物可以自由发挥**：架构未提及的人物可以出现，用于推动情节、丰富场景或制造冲突，但不能喧宾夺主、抢占主线
+3. **细节事件可以自由填充**：为使情节合理、场景生动，可以在主线之外补充细节性事件，但不得改变架构规定的情节走向和结果
+4. **不得跳过架构中的核心情节**：架构中明确写出的情节点必须在本章有所体现，不能略去
+5. **不得"剧透"后续章节**：不要让人物预言、明确提及或直接暗示后续章节的具体情节内容
 
 ## 逻辑一致性要求（重要！）
 1. **时间线必须自洽**：如果写"头七刚过"，那死亡时间必须是7天前；如果写"三日前染病"，就不能同时说"头七已过"。所有时间表述必须能互相印证，不能矛盾
@@ -244,52 +331,6 @@ async function getConfig() {
     deepseekApiKey: configMap.deepseekApiKey || process.env.DEEPSEEK_API_KEY,
     deepseekApiUrl: process.env.DEEPSEEK_API_URL
   };
-}
-
-async function getTemplate(templateId) {
-  if (templateId) {
-    return await PromptTemplate.findByPk(templateId);
-  }
-
-  return await PromptTemplate.findOne({ where: { is_default: 1 } });
-}
-
-function buildPrompt(template, params) {
-  const { novel, chapter, architecture } = params;
-
-  let prompt = template.template;
-
-  prompt = prompt.replace(/\{\{novel_title\}\}/g, novel.title || '');
-  prompt = prompt.replace(/\{\{genre\}\}/g, novel.genre || '');
-  prompt = prompt.replace(/\{\{chapter_title\}\}/g, chapter.title || '');
-  prompt = prompt.replace(/\{\{chapter_number\}\}/g, chapter.chapter_number || '');
-  prompt = prompt.replace(/\{\{emotional_tone\}\}/g, architecture?.emotional_tone || '');
-
-  let archInfo = '';
-  if (architecture) {
-    archInfo = `层级: ${architecture.level}\n`;
-    archInfo += `标题: ${architecture.title}\n`;
-    if (architecture.plot_outline) archInfo += `情节大纲: ${architecture.plot_outline}\n`;
-    if (architecture.characters) {
-      try {
-        const chars = JSON.parse(architecture.characters);
-        archInfo += `人物设定: ${JSON.stringify(chars, null, 2)}\n`;
-      } catch {
-        archInfo += `人物设定: ${architecture.characters}\n`;
-      }
-    }
-    if (architecture.world_setting) {
-      try {
-        const world = JSON.parse(architecture.world_setting);
-        archInfo += `世界观: ${JSON.stringify(world, null, 2)}\n`;
-      } catch {
-        archInfo += `世界观: ${architecture.world_setting}\n`;
-      }
-    }
-  }
-  prompt = prompt.replace(/\{\{architecture_info\}\}/g, archInfo);
-
-  return prompt;
 }
 
 function startProgressLog(label, signal) {

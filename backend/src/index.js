@@ -9,9 +9,9 @@ const architecturesRouter = require('./routes/architectures');
 const chaptersRouter = require('./routes/chapters');
 const schedulesRouter = require('./routes/schedules');
 const configsRouter = require('./routes/configs');
-const templatesRouter = require('./routes/templates');
 const exportRouter = require('./routes/export');
 const aiStatusRouter = require('./routes/aiStatus');
+const publishRouter = require('./routes/publish');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -29,9 +29,9 @@ app.use('/api/architectures', architecturesRouter);
 app.use('/api/chapters', chaptersRouter);
 app.use('/api/schedules', schedulesRouter);
 app.use('/api/configs', configsRouter);
-app.use('/api/templates', templatesRouter);
 app.use('/api/export', exportRouter);
 app.use('/api/ai-status', aiStatusRouter);
+app.use('/api/publish', publishRouter);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);

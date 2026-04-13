@@ -58,7 +58,7 @@ async function findById(id) {
   return serializeChapter(chapter);
 }
 
-async function update(id, data) {
+async function update(id, data, { regenerateMemory = true } = {}) {
   const chapter = await Chapter.findByPk(id);
   if (!chapter) return null;
 
@@ -78,7 +78,7 @@ async function update(id, data) {
 
   await chapter.save();
 
-  if (contentChanged) {
+  if (contentChanged && regenerateMemory) {
     try {
       await chapterMemoryService.upsertForChapter(id);
     } catch (memoryError) {
@@ -124,7 +124,7 @@ async function restoreVersion(chapterId, versionNumber) {
   return update(chapterId, { content: version.content });
 }
 
-async function generate(chapterId, templateId, signal) {
+async function generate(chapterId, signal) {
   const taskId = `generate-${chapterId}-${Date.now()}`;
   const steps = ['生成章节内容', '提取记忆卡', '逻辑审阅'];
 
@@ -141,8 +141,7 @@ async function generate(chapterId, templateId, signal) {
     const generatedContent = await aiService.generateChapter({
       novel,
       chapter,
-      architecture,
-      templateId
+      architecture
     }, signal);
 
     aiStatus.step(taskId, 1, steps[1]);
