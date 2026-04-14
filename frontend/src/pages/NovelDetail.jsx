@@ -215,9 +215,14 @@ function NovelDetail() {
         title="继续创作"
         description="小说详情页只做轻量概览，真正的结构调整在架构工作台完成。"
         actions={
-          <Button asChild>
-            <Link to={`/novels/${id}/architecture`}>进入架构工作台</Link>
-          </Button>
+          <>
+            <Button asChild variant="secondary">
+              <Link to={`/novels/${id}/chapters`}>进入章节列表</Link>
+            </Button>
+            <Button asChild>
+              <Link to={`/novels/${id}/architecture`}>进入架构工作台</Link>
+            </Button>
+          </>
         }
       >
         <div className="grid gap-4 lg:grid-cols-2">

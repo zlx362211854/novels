@@ -76,7 +76,7 @@ router.post('/:id/versions/:versionNumber/restore', async (req: Request, res: Re
   try {
     const chapter = await chapterService.restoreVersion(
       String(req.params.id),
-      parseInt(req.params.versionNumber)
+      parseInt(String(req.params.versionNumber))
     );
     if (!chapter) {
       return res.status(404).json({ error: '版本不存在' });

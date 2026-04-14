@@ -2,6 +2,8 @@ import { BrowserRouter as Router, Link, NavLink, Route, Routes } from 'react-rou
 import { cn } from '@/lib/utils';
 import ArchitectureManager from './pages/ArchitectureManager';
 import ChapterDetail from './pages/ChapterDetail';
+import ChapterManager from './pages/ChapterManager';
+import MultiChapterReview from './pages/MultiChapterReview';
 import NovelDetail from './pages/NovelDetail';
 import NovelList from './pages/NovelList';
 import Settings from './pages/Settings';
@@ -56,7 +58,9 @@ function AppFrame() {
           <Route path="/" element={<NovelList />} />
           <Route path="/novels/:id" element={<NovelDetail />} />
           <Route path="/novels/:id/architecture" element={<ArchitectureManager />} />
+          <Route path="/novels/:id/chapters" element={<ChapterManager />} />
           <Route path="/chapters/:id" element={<ChapterDetail />} />
+          <Route path="/novels/:novelId/multi-chapter-review/:reviewId" element={<MultiChapterReview />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>

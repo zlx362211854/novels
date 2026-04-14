@@ -54,6 +54,21 @@ export const chapterApi = {
   restoreVersion: (id, version) => api.post(`/chapters/${id}/restore/${version}`),
 };
 
+export const multiChapterReviewApi = {
+  start: (novelId, chapterIds) =>
+    api.post('/multi-chapter-reviews', { novelId, chapterIds }),
+  getReview: (reviewId) =>
+    api.get(`/multi-chapter-reviews/${reviewId}`),
+  listByNovel: (novelId) =>
+    api.get(`/multi-chapter-reviews/novel/${novelId}`),
+  startFix: (reviewId, selectedIssueIds, issueSuggestions = {}) =>
+    api.post(`/multi-chapter-reviews/${reviewId}/fix`, { selectedIssueIds, issueSuggestions }),
+  getDrafts: (reviewId) =>
+    api.get(`/multi-chapter-reviews/${reviewId}/drafts`),
+  apply: (reviewId, chapterId, accept) =>
+    api.post(`/multi-chapter-reviews/${reviewId}/apply`, { chapterId, accept }),
+};
+
 export const scheduleApi = {
   getAll: () => api.get('/schedules'),
   create: (data) => api.post('/schedules', data),

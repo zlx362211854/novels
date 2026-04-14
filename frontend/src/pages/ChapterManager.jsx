@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { architectureApi, chapterApi } from '../services/api';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { architectureApi, chapterApi, multiChapterReviewApi } from '../services/api';
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Plus } from 'lucide-react';
+import { ArrowLeft, GitCompare, Plus, X } from 'lucide-react';
 
 function ChapterManager() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const feedback = useFeedback();
   const [chapters, setChapters] = useState([]);
   const [architectures, setArchitectures] = useState([]);
@@ -19,6 +20,8 @@ function ChapterManager() {
     title: '',
     architectureId: null,
   });
+  const [selectedChapterIds, setSelectedChapterIds] = useState(new Set());
+  const [multiReviewing, setMultiReviewing] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -82,6 +85,46 @@ function ChapterManager() {
     }
   };
 
+  const toggleChapter = (chapterId) => {
+    setSelectedChapterIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(chapterId)) {
+        next.delete(chapterId);
+      } else {
+        next.add(chapterId);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedChapterIds.size === chapters.length) {
+      setSelectedChapterIds(new Set());
+    } else {
+      setSelectedChapterIds(new Set(chapters.map((c) => c.id)));
+    }
+  };
+
+  const handleMultiReview = async () => {
+    setMultiReviewing(true);
+    try {
+      const res = await multiChapterReviewApi.start(id, Array.from(selectedChapterIds));
+      navigate(`/novels/${id}/multi-chapter-review/${res.data.reviewId}`);
+    } catch (error) {
+      feedback.error(error.response?.data?.error || '发起审阅失败');
+    } finally {
+      setMultiReviewing(false);
+    }
+  };
+
+  const multiReviewDisabled = selectedChapterIds.size < 2 || selectedChapterIds.size > 30 || multiReviewing;
+  const multiReviewTitle =
+    selectedChapterIds.size < 2
+      ? '至少选择 2 章'
+      : selectedChapterIds.size > 30
+      ? '最多 30 章'
+      : '跨章审阅';
+
   const handleDelete = async (chapter) => {
     const confirmed = await feedback.confirm({
       title: `删除第 ${chapter.chapter_number} 章？`,
@@ -129,7 +172,27 @@ function ChapterManager() {
     >
       <StatGrid items={stats} />
 
-      <SectionCard title="章节清单" description="手动创建更适合补缺口；大批量正文建议回到架构页统一生成。">
+      <SectionCard
+        title="章节清单"
+        description="手动创建更适合补缺口；大批量正文建议回到架构页统一生成。"
+        actions={
+          chapters.length > 0 ? (
+            <button
+              type="button"
+              onClick={toggleSelectAll}
+              className="flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+            >
+              <input
+                type="checkbox"
+                readOnly
+                checked={selectedChapterIds.size === chapters.length && chapters.length > 0}
+                className="pointer-events-none h-3.5 w-3.5 accent-primary"
+              />
+              全选
+            </button>
+          ) : null
+        }
+      >
         {chapters.length === 0 ? (
           <div className="rounded-[28px] border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center">
             <p className="text-lg font-semibold text-slate-800">还没有章节</p>
@@ -141,14 +204,22 @@ function ChapterManager() {
           <div className="space-y-3">
             {chapters.map((chapter) => (
               <div key={chapter.id} className="flex flex-col gap-3 rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_12px_32px_rgba(15,23,42,0.04)] md:flex-row md:items-center md:justify-between">
-                <Link to={`/chapters/${chapter.id}`} className="min-w-0 flex-1">
-                  <p className="text-base font-semibold text-slate-900">
-                    第{chapter.chapter_number}章 · {chapter.title || '未命名'}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {chapter.content ? `${chapter.content.length} 字` : '还没有正文内容'}
-                  </p>
-                </Link>
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedChapterIds.has(chapter.id)}
+                    onChange={() => toggleChapter(chapter.id)}
+                    className="h-4 w-4 shrink-0 cursor-pointer accent-primary"
+                  />
+                  <Link to={`/chapters/${chapter.id}`} className="min-w-0 flex-1">
+                    <p className="text-base font-semibold text-slate-900">
+                      第{chapter.chapter_number}章 · {chapter.title || '未命名'}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {chapter.content ? `${chapter.content.length} 字` : '还没有正文内容'}
+                    </p>
+                  </Link>
+                </div>
                 <div className="flex flex-wrap items-center gap-3">
                   <span className={`rounded-full px-3 py-1 text-xs font-semibold ${chapter.status === 'generated' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
                     }`}>
@@ -167,6 +238,35 @@ function ChapterManager() {
           </div>
         )}
       </SectionCard>
+
+      {/* Floating multi-select action bar */}
+      {selectedChapterIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
+          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-3 shadow-2xl shadow-slate-900/15">
+            <span className="text-sm font-medium text-slate-700">
+              已选 {selectedChapterIds.size} 章
+            </span>
+            <div className="h-4 w-px bg-slate-200" />
+            <Button
+              size="sm"
+              disabled={multiReviewDisabled}
+              title={multiReviewTitle}
+              onClick={handleMultiReview}
+            >
+              <GitCompare className="mr-1.5 h-4 w-4" />
+              {multiReviewing ? '发起中...' : '跨章审阅'}
+            </Button>
+            <button
+              type="button"
+              onClick={() => setSelectedChapterIds(new Set())}
+              className="flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+            >
+              <X className="h-3.5 w-3.5" />
+              取消选择
+            </button>
+          </div>
+        </div>
+      )}
 
       {showCreate ? (
         <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">

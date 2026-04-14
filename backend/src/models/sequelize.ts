@@ -477,6 +477,69 @@ SystemConfig.init({
   sequelize
 });
 
+interface MultiChapterReviewAttributes {
+  id?: string;
+  novel_id: number;
+  chapter_ids: string;
+  review_data: string | null;
+  fix_data: string | null;
+  status: string;
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+interface MultiChapterReviewCreationAttributes extends Optional<MultiChapterReviewAttributes, 'id'> { }
+
+class MultiChapterReview extends Model<MultiChapterReviewAttributes, MultiChapterReviewCreationAttributes> implements MultiChapterReviewAttributes {
+  declare id: string;
+  declare novel_id: number;
+  declare chapter_ids: string;
+  declare review_data: string | null;
+  declare fix_data: string | null;
+  declare status: string;
+  declare created_at: Date;
+  declare updated_at: Date;
+}
+
+MultiChapterReview.init({
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true,
+  },
+  novel_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'novels',
+      key: 'id'
+    }
+  },
+  chapter_ids: {
+    type: DataTypes.TEXT,
+    allowNull: false,
+  },
+  review_data: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+  fix_data: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+  status: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'reviewing',
+  },
+}, {
+  tableName: 'multi_chapter_reviews',
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
+  sequelize
+});
+
 Novel.hasMany(Architecture, { foreignKey: 'novel_id', as: 'architectures', onDelete: 'CASCADE' });
 Architecture.belongsTo(Novel, { foreignKey: 'novel_id', as: 'novel' });
 
@@ -527,6 +590,11 @@ async function ensureLegacySchema(): Promise<void> {
       allowNull: true
     });
   }
+
+  const allTables = await queryInterface.showAllTables();
+  if (!allTables.includes('multi_chapter_reviews')) {
+    await MultiChapterReview.sync({ force: false });
+  }
 }
 
 export {
@@ -538,5 +606,6 @@ export {
   ChapterVersion,
   ScheduledTask,
   SystemConfig,
+  MultiChapterReview,
   initDatabase
 };
