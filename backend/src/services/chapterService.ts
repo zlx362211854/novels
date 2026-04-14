@@ -1,10 +1,9 @@
-import { Chapter, ChapterVersion, Novel, Architecture } from '../models/sequelize';
-import * as aiService from './aiService';
-import reviewAgent from '../agents/reviewAgent';
-import * as chapterRevisionAgent from '../agents/chapterRevisionAgent';
+import { Chapter, ChapterVersion, Architecture } from '../models/sequelize';
 import * as chapterMemoryService from './chapterMemoryService';
-import * as reviewContextService from './reviewContextService';
 import * as aiStatus from './aiStatusService';
+import { chapterReviewGraph } from '../ai/graphs/chapterReviewGraph';
+import { chapterRevisionGraph } from '../ai/graphs/chapterRevisionGraph';
+import { chapterGenerationGraph } from '../ai/graphs/chapterGenerationGraph';
 
 interface CreateChapterData {
   novelId: number;
@@ -146,51 +145,30 @@ async function restoreVersion(chapterId: number | string, versionNumber: number)
 
 async function generate(chapterId: number | string, signal?: AbortSignal): Promise<any> {
   const taskId = `generate-${chapterId}-${Date.now()}`;
-  const steps = ['生成章节内容', '提取记忆卡', '逻辑审阅'];
-
-  let chapter = await Chapter.findByPk(chapterId);
-  if (!chapter) throw new Error('章节不存在');
-  chapter = await ensureChapterNumber(chapter);
-
-  const novel = await Novel.findByPk(chapter.novel_id);
-  const architecture = chapter.architecture_id ? await Architecture.findByPk(chapter.architecture_id) : null;
 
   try {
-    aiStatus.start(taskId, `生成「${chapter.title || '章节'}」`, steps);
+    const result = await chapterGenerationGraph.invoke(
+      {
+        chapterId: Number(chapterId),
+        signal,
+        taskId,
+        chapter: null,
+        novel: null,
+        architecture: null,
+        generatedContent: '',
+        reviewResult: null,
+        reviewWarning: '',
+        updatedChapter: null,
+      },
+      { signal }
+    );
 
-    const generatedContent = await aiService.generateChapter({
-      novel,
-      chapter,
-      architecture
-    }, signal);
-
-    aiStatus.step(taskId, 1, steps[1]);
-
-    const updatedChapter = await update(chapterId, {
-      content: generatedContent,
-      status: 'generated'
-    });
-
-    let reviewResult = null;
-    let reviewWarning = null;
-    try {
-      aiStatus.step(taskId, 2, steps[2]);
-      reviewResult = await reviewChapter(chapterId, signal, {
-        chapter: updatedChapter,
-        novel,
-        architecture
-      });
-    } catch (error) {
-      reviewWarning = `自动审阅已跳过：${(error as Error).message}`;
-      console.error(`[chapter-generate] 自动审阅失败，已跳过。chapterId=${chapterId}`, error);
-    }
-
-    aiStatus.finish(taskId);
+    const updatedChapter = serializeChapter(result.updatedChapter);
 
     return {
       chapter: updatedChapter,
-      review: reviewResult,
-      reviewWarning
+      review: result.reviewResult,
+      reviewWarning: result.reviewWarning || null,
     };
   } catch (err) {
     aiStatus.error(taskId, (err as Error).message);
@@ -208,48 +186,23 @@ async function reviewChapter(chapterId: number | string, signal?: AbortSignal, p
     preloaded.chapter = await ensureChapterNumber(chapter);
   }
 
-  if (!preloaded.novel) {
-    const novel = await Novel.findByPk(preloaded.chapter.novel_id);
-    if (!novel) throw new Error('小说不存在');
-    preloaded.novel = novel;
-  }
-
   try {
-    if (taskId) {
-      aiStatus.start(taskId, `审阅「${preloaded.chapter.title || '章节'}」`, ['提取记忆卡', '逻辑审阅']);
-    }
+    const result = await chapterReviewGraph.invoke(
+      {
+        chapterId: Number(chapterId),
+        signal,
+        chapter: preloaded.chapter,
+        novel: preloaded.novel || null,
+        architecture: preloaded.architecture,
+        currentMemory: null,
+        reviewContext: null,
+        reviewResult: null,
+        taskId,
+      },
+      { signal }
+    );
 
-    let currentMemory = null;
-    if (preloaded.chapter.content) {
-      currentMemory = await chapterMemoryService.upsertForChapter(Number(chapterId), signal);
-    }
-
-    if (taskId) aiStatus.step(taskId, 1, '逻辑审阅');
-
-    const reviewContext = await reviewContextService.buildReviewContext(Number(chapterId), signal, {
-      chapter: preloaded.chapter,
-      novel: preloaded.novel,
-      architecture: preloaded.architecture,
-      currentMemory
-    });
-
-    const reviewResult = await reviewAgent.review({
-      chapter: preloaded.chapter,
-      novel: preloaded.novel,
-      architecture: preloaded.architecture ?? reviewContext.architecture,
-      currentMemory: reviewContext.currentMemory,
-      relevantMemories: reviewContext.relevantMemories,
-      sourceExcerpts: reviewContext.sourceExcerpts
-    }, signal);
-
-    const chapterRecord = await Chapter.findByPk(chapterId);
-    if (chapterRecord) {
-      chapterRecord.review_result = JSON.stringify(reviewResult);
-      await chapterRecord.save();
-    }
-
-    if (taskId) aiStatus.finish(taskId);
-    return reviewResult;
+    return result.reviewResult;
   } catch (err) {
     if (taskId) aiStatus.error(taskId, (err as Error).message);
     throw err;
@@ -258,7 +211,6 @@ async function reviewChapter(chapterId: number | string, signal?: AbortSignal, p
 
 async function reviseChapter(chapterId: number | string, reviewResult: any, signal?: AbortSignal): Promise<any> {
   const taskId = `revise-${chapterId}-${Date.now()}`;
-  const steps = ['构建上下文', '修订章节', '保存结果'];
 
   if (!reviewResult?.issues?.length) {
     throw new Error('没有可用于修订的问题');
@@ -271,42 +223,30 @@ async function reviseChapter(chapterId: number | string, reviewResult: any, sign
   }
   chapter = await ensureChapterNumber(chapter);
 
-  const novel = await Novel.findByPk(chapter.novel_id);
-  if (!novel) throw new Error('小说不存在');
-
   try {
-    aiStatus.start(taskId, `修订「${chapter.title || '章节'}」`, steps);
+    const result = await chapterRevisionGraph.invoke(
+      {
+        chapterId: Number(chapterId),
+        reviewResult,
+        signal,
+        taskId,
+        chapter,
+        novel: null,
+        reviewContext: null,
+        revisionResult: null,
+        updatedChapter: null,
+      },
+      { signal }
+    );
 
-    const reviewContext = await reviewContextService.buildReviewContext(Number(chapterId), signal);
-
-    aiStatus.step(taskId, 1, steps[1]);
-
-    const revisionResult = await chapterRevisionAgent.revise({
-      chapter,
-      novel,
-      architecture: reviewContext.architecture,
-      reviewResult,
-      currentMemory: reviewContext.currentMemory,
-      relevantMemories: reviewContext.relevantMemories,
-      sourceExcerpts: reviewContext.sourceExcerpts
-    }, signal);
-
-    aiStatus.step(taskId, 2, steps[2]);
-
-    const updatedChapter = await update(chapterId, {
-      content: revisionResult.revisedContent,
-      status: chapter.status || 'generated'
-    });
-
-    aiStatus.finish(taskId);
-
+    // Graph handles save + memory extraction internally; just serialize the result
     return {
-      chapter: updatedChapter,
+      chapter: serializeChapter(result.updatedChapter),
       review: null,
       revision: {
-        summary: revisionResult.summary,
-        appliedIssues: revisionResult.appliedIssues
-      }
+        summary: result.revisionResult.summary,
+        appliedIssues: result.revisionResult.appliedIssues,
+      },
     };
   } catch (err) {
     aiStatus.error(taskId, (err as Error).message);

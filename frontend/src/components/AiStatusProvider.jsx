@@ -27,10 +27,16 @@ export function AiStatusProvider({ children }) {
 
   useEffect(() => {
     function connect() {
-      const es = new EventSource('http://localhost:3001/api/ai-status/stream');
+      console.log('[AiStatus] 正在连接 SSE...');
+      const es = new EventSource('http://localhost:3001/api/ai-status/events');
       esRef.current = es;
 
+      es.onopen = () => {
+        console.log('[AiStatus] SSE 连接已建立');
+      };
+
       es.onmessage = (event) => {
+        console.log('[AiStatus] 收到事件:', event.data.slice(0, 120));
         try {
           const data = JSON.parse(event.data);
           if (hideTimerRef.current) {
@@ -43,10 +49,13 @@ export function AiStatusProvider({ children }) {
           } else {
             setStatus(data);
           }
-        } catch { /* ignore */ }
+        } catch (err) {
+          console.error('[AiStatus] 解析事件失败:', err, event.data);
+        }
       };
 
-      es.onerror = () => {
+      es.onerror = (err) => {
+        console.error('[AiStatus] SSE 连接出错，5秒后重试', err);
         es.close();
         setTimeout(connect, 5000);
       };
@@ -87,13 +96,12 @@ export function AiStatusBar() {
 
   return (
     <div className="fixed bottom-4 right-4 z-50 w-80 animate-in slide-in-from-bottom-2 fade-in duration-300">
-      <div className={`rounded-lg border shadow-lg backdrop-blur-sm p-3 ${
-        isError
+      <div className={`rounded-lg border shadow-lg backdrop-blur-sm p-3 ${isError
           ? 'bg-destructive/10 border-destructive/30'
           : isDone
             ? 'bg-green-500/10 border-green-500/30'
             : 'bg-background/95 border-border'
-      }`}>
+        }`}>
         <div className="flex items-center gap-2 mb-1.5">
           {isRunning && (
             <span className="relative flex h-2 w-2">

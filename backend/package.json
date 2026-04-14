@@ -13,6 +13,9 @@
   "license": "ISC",
   "description": "AI长篇小说创作工具后端服务",
   "dependencies": {
+    "@langchain/core": "^1.1.39",
+    "@langchain/langgraph": "^1.2.8",
+    "@langchain/openai": "^1.4.4",
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",

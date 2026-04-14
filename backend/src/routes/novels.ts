@@ -4,7 +4,6 @@ import * as chapterService from '../services/chapterService';
 import * as architectureService from '../services/architectureService';
 import * as architectureAiService from '../services/architectureAiService';
 import * as architectureReviewService from '../services/architectureReviewService';
-import * as aiService from '../services/aiService';
 import { Novel, Chapter, Architecture } from '../models/sequelize';
 
 const router = Router();

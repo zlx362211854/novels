@@ -221,11 +221,11 @@ function ChapterDetail() {
 
     setRegenerating(true);
     try {
-      const res = await chapterApi.regenerate(id);
-      setChapter(res.data);
-      setEditContent(res.data.content || '');
-      setEditTitle(res.data.title || '');
-      setReview(res.data.review_result || null);
+      const res = await chapterApi.generate(id);
+      setChapter(res.data.chapter);
+      setEditContent(res.data.chapter.content || '');
+      setEditTitle(res.data.chapter.title || '');
+      setReview(res.data.review || null);
       await refreshVersions();
       setMode('read');
       feedback.success('章节已按架构重新生成。');
