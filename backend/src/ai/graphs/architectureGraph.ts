@@ -3,6 +3,7 @@ import { HumanMessage } from '@langchain/core/messages';
 import { Novel, Architecture } from '../../models/sequelize';
 import { createLLM } from '../llmFactory';
 import { withRetry } from '../retryUtils';
+import { invokeWithStreaming } from '../streaming';
 
 // --- Single Architecture Generation ---
 
@@ -67,8 +68,7 @@ async function generateNode(state: typeof ArchitectureGenerationState.State) {
 
   const result = await withRetry(
     async () => {
-      const response = await llm.invoke([new HumanMessage(prompt)], { signal: state.signal });
-      const content = response.content as string;
+      const content = await invokeWithStreaming(llm, [new HumanMessage(prompt)], { signal: state.signal, resetStream: true });
       try {
         return JSON.parse(content);
       } catch {
@@ -143,8 +143,7 @@ async function generateBatchNode(state: typeof ChapterBatchState.State) {
 
   const result = await withRetry(
     async () => {
-      const response = await llm.invoke([new HumanMessage(prompt)], { signal: state.signal });
-      const content = response.content as string;
+      const content = await invokeWithStreaming(llm, [new HumanMessage(prompt)], { signal: state.signal, resetStream: true });
       try {
         const parsed = JSON.parse(content);
         return Array.isArray(parsed) ? parsed : parsed.chapters || [];

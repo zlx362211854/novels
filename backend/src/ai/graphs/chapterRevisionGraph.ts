@@ -5,6 +5,7 @@ import * as reviewContextService from '../../services/reviewContextService';
 import * as chapterMemoryService from '../../services/chapterMemoryService';
 import { createLLM } from '../llmFactory';
 import { createProgressTracker } from '../progressAdapter';
+import { invokeWithStreaming } from '../streaming';
 
 const STEPS = ['构建上下文', '修订章节', '保存结果', '提取记忆'];
 
@@ -98,8 +99,11 @@ async function runRevisionNode(state: typeof ChapterRevisionState.State) {
     state.reviewResult
   );
 
-  const response = await llm.invoke([new HumanMessage(prompt)], { signal: state.signal });
-  const content = response.content as string;
+  const content = await invokeWithStreaming(
+    llm,
+    [new HumanMessage(prompt)],
+    { signal: state.signal, taskId: state.taskId, resetStream: true }
+  );
   console.log(`[chapter-revise] LLM 修订完成，字数: ${content.length}`);
 
   let revisionResult: any;

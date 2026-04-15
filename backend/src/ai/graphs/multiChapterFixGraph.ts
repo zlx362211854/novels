@@ -4,6 +4,7 @@ import { Chapter, MultiChapterReview } from '../../models/sequelize';
 import { createLLM } from '../llmFactory';
 import { extractJsonObject } from '../jsonUtils';
 import { createProgressTracker } from '../progressAdapter';
+import { invokeWithStreaming } from '../streaming';
 
 const STEPS = ['准备修订任务', '逐章生成修订稿', '保存草稿'];
 
@@ -241,20 +242,25 @@ async function generateFixesNode(state: typeof MultiChapterFixState.State) {
     const originalContent: string = (chapter as any).content || '';
     const prompt = buildChapterFixPrompt(task.chapterNumber, originalContent, task.issues);
 
-    const response = await llm.invoke([new HumanMessage(prompt)], { signal: state.signal });
+    const content = await invokeWithStreaming(
+      llm,
+      [new HumanMessage(prompt)],
+      { signal: state.signal, taskId: state.taskId, resetStream: true }
+    );
     let parsed: any;
     try {
-      parsed = parseRevisionResult(response.content as string);
+      parsed = parseRevisionResult(content);
       validateRevisionResult(parsed, originalContent);
     } catch (error) {
       console.warn(
         `[multi-fix] 首次解析失败，尝试修复输出。chapterId=${task.chapterId} error=${(error as Error).message}`
       );
-      const repaired = await llm.invoke(
-        [new HumanMessage(buildRepairPrompt(response.content as string))],
-        { signal: state.signal }
+      const repaired = await invokeWithStreaming(
+        llm,
+        [new HumanMessage(buildRepairPrompt(content))],
+        { signal: state.signal, taskId: state.taskId, resetStream: true }
       );
-      parsed = parseRevisionResult(repaired.content as string);
+      parsed = parseRevisionResult(repaired);
       validateRevisionResult(parsed, originalContent);
     }
 

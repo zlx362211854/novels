@@ -2,6 +2,7 @@ import { Novel, Architecture } from '../models/sequelize';
 import { HumanMessage } from '@langchain/core/messages';
 import { createLLM } from '../ai/llmFactory';
 import { parseJson } from '../ai/jsonUtils';
+import { invokeWithStreaming } from '../ai/streaming';
 
 function buildReviewPrompt(novel: any, architectures: any[]): string {
   return `你是一位专业的网络小说审阅师。请对小说《${novel.title}》的架构进行审阅。
@@ -57,8 +58,7 @@ async function reviewArchitectures(novelId: number, signal?: AbortSignal): Promi
 
   const prompt = buildReviewPrompt(novel, architectures);
   const llm = await createLLM({ temperature: 0.7 });
-  const response = await llm.invoke([new HumanMessage(prompt)], { signal });
-  const content = response.content as string;
+  const content = await invokeWithStreaming(llm, [new HumanMessage(prompt)], { signal, resetStream: true });
 
   try {
     return parseJson(content);
@@ -78,8 +78,7 @@ async function rewriteArchitectures(novelId: number, reviewResult: any, userProm
 
   const prompt = buildFullArchRewritePrompt(novel, fullArch, volumes, reviewResult, userPrompt);
   const llm = await createLLM({ temperature: 0.7 });
-  const response = await llm.invoke([new HumanMessage(prompt)], { signal });
-  const content = response.content as string;
+  const content = await invokeWithStreaming(llm, [new HumanMessage(prompt)], { signal, resetStream: true });
 
   try {
     return parseJson(content);

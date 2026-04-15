@@ -5,6 +5,8 @@ import { Chapter, ChapterMemory, MultiChapterReview } from '../../models/sequeli
 import { createLLM } from '../llmFactory';
 import { parseJsonWithRepair } from '../jsonUtils';
 import { createProgressTracker } from '../progressAdapter';
+import { invokeWithStreaming } from '../streaming';
+import * as aiStatus from '../../services/aiStatusService';
 
 const STEPS = ['加载章节记忆卡', 'AI 跨章分析', '保存审阅结果'];
 
@@ -85,6 +87,40 @@ ${memoryCards}
 }`;
 }
 
+function buildAnalysisPreface(chapters: any[]): string {
+  const chapterCount = chapters.length;
+  const characterSet = new Set<string>();
+  const locationSet = new Set<string>();
+  const threadSet = new Set<string>();
+  let factsCount = 0;
+
+  for (const chapter of chapters) {
+    const memory = chapter.memory;
+    if (!memory) continue;
+
+    for (const name of memory.entities?.characters || []) {
+      if (name) characterSet.add(name);
+    }
+    for (const name of memory.entities?.locations || []) {
+      if (name) locationSet.add(name);
+    }
+    for (const thread of memory.open_threads || []) {
+      const label = typeof thread === 'string' ? thread : thread?.thread;
+      if (label) threadSet.add(label);
+    }
+    factsCount += Array.isArray(memory.facts) ? memory.facts.length : 0;
+  }
+
+  return [
+    `已载入 ${chapterCount} 章记忆卡`,
+    `涉及人物 ${characterSet.size} 个`,
+    `涉及地点 ${locationSet.size} 个`,
+    `涉及关键事实 ${factsCount} 条`,
+    `涉及开放线索 ${threadSet.size} 条`,
+    '开始进行跨章逻辑比对...',
+  ].join('\n');
+}
+
 function buildRepairPrompt(raw: string): string {
   return `请把以下文本修复成合法JSON：${raw}`;
 }
@@ -155,16 +191,19 @@ async function loadChaptersNode(state: typeof CrossChapterReviewState.State) {
 async function crossChapterReviewNode(state: typeof CrossChapterReviewState.State) {
   const tracker = createProgressTracker(state.taskId, STEPS);
   tracker.step(1);
+  aiStatus.setStream(state.taskId, buildAnalysisPreface(state.chapters));
 
   const prompt = buildCrossChapterReviewPrompt(state.chapters);
   const llm = await createLLM({
-    provider: 'zhipu',
     temperature: 0.2,
-    maxTokens: 12000,
   });
 
-  const response = await llm.invoke([new HumanMessage(prompt)], { signal: state.signal });
-  const parsed = await parseJsonWithRepair(response.content as string, llm, buildRepairPrompt);
+  const content = await invokeWithStreaming(
+    llm,
+    [new HumanMessage(prompt)],
+    { signal: state.signal, taskId: state.taskId, resetStream: true }
+  );
+  const parsed = await parseJsonWithRepair(content, llm, buildRepairPrompt);
 
   const rawIssues: any[] = parsed.issues || [];
 

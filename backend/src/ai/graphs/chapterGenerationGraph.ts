@@ -4,6 +4,7 @@ import { Chapter, Novel, Architecture } from '../../models/sequelize';
 import { createLLM } from '../llmFactory';
 import { withRetry } from '../retryUtils';
 import { createProgressTracker } from '../progressAdapter';
+import { invokeWithStreaming } from '../streaming';
 import * as chapterMemoryService from '../../services/chapterMemoryService';
 import { chapterReviewGraph } from './chapterReviewGraph';
 import { buildChapterPrompt, getPreviousChapterContent } from '../../services/aiService';
@@ -101,8 +102,11 @@ async function generateContentNode(state: typeof ChapterGenerationState.State) {
   const llm = await createLLM({ temperature: 0.8 });
   const generatedContent = await withRetry(
     async () => {
-      const response = await llm.invoke([new HumanMessage(prompt)], { signal: state.signal });
-      return response.content as string;
+      return await invokeWithStreaming(
+        llm,
+        [new HumanMessage(prompt)],
+        { signal: state.signal, taskId: state.taskId, resetStream: true }
+      );
     },
     { maxAttempts: 3, delayMs: 60000, signal: state.signal, label: 'generateChapter' }
   );

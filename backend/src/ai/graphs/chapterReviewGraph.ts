@@ -6,6 +6,7 @@ import * as reviewContextService from '../../services/reviewContextService';
 import { createLLM, getAIConfig } from '../llmFactory';
 import { parseJsonWithRepair } from '../jsonUtils';
 import * as aiStatus from '../../services/aiStatusService';
+import { invokeWithStreaming } from '../streaming';
 
 const ChapterReviewState = Annotation.Root({
   // Inputs
@@ -131,9 +132,13 @@ async function runReviewNode(state: typeof ChapterReviewState.State) {
   );
 
   try {
-    const response = await llm.invoke([new HumanMessage(prompt)], { signal: state.signal });
+    const content = await invokeWithStreaming(
+      llm,
+      [new HumanMessage(prompt)],
+      { signal: state.signal, taskId: state.taskId, resetStream: true }
+    );
     const reviewResult = await parseJsonWithRepair(
-      response.content as string,
+      content,
       llm,
       buildRepairPrompt
     );

@@ -2,6 +2,7 @@ import { Annotation, StateGraph, START, END } from '@langchain/langgraph';
 import { HumanMessage } from '@langchain/core/messages';
 import { createLLM } from '../llmFactory';
 import { parseJson } from '../jsonUtils';
+import { invokeWithStreaming } from '../streaming';
 
 const MemoryExtractionState = Annotation.Root({
   // Inputs
@@ -129,10 +130,14 @@ async function callLLMNode(state: typeof MemoryExtractionState.State) {
   const prompt = buildMemoryPrompt(state.chapter, state.novel, state.architecture);
 
   console.log('[AI] 开始调用 LLM (chapter-memory)');
-  const response = await llm.invoke([new HumanMessage(prompt)], { signal: state.signal });
+  const rawResponse = await invokeWithStreaming(
+    llm,
+    [new HumanMessage(prompt)],
+    { signal: state.signal, resetStream: true }
+  );
   console.log('[AI] LLM (chapter-memory) 返回完成');
 
-  return { rawResponse: response.content as string };
+  return { rawResponse };
 }
 
 // Node: try to parse the JSON response
@@ -151,13 +156,14 @@ async function parseResponseNode(state: typeof MemoryExtractionState.State) {
 async function repairJsonNode(state: typeof MemoryExtractionState.State) {
   const llm = await createLLM({ temperature: 0.2 });
   console.log('[AI] 尝试修复记忆卡 JSON...');
-  const repaired = await llm.invoke(
+  const repaired = await invokeWithStreaming(
+    llm,
     [new HumanMessage(buildRepairPrompt(state.rawResponse))],
-    { signal: state.signal }
+    { signal: state.signal, resetStream: true }
   );
 
   try {
-    const memoryCard = parseJson(repaired.content as string);
+    const memoryCard = parseJson(repaired);
     return { memoryCard, parseSucceeded: true };
   } catch (repairError: any) {
     console.error('修复后记忆卡解析仍失败:', repairError.message);
