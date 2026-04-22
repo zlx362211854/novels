@@ -158,6 +158,7 @@ async function generate(chapterId: number | string, signal?: AbortSignal): Promi
         generatedContent: '',
         reviewResult: null,
         reviewWarning: '',
+        autoRevisionRounds: 0,
         updatedChapter: null,
       },
       { signal }
@@ -209,7 +210,12 @@ async function reviewChapter(chapterId: number | string, signal?: AbortSignal, p
   }
 }
 
-async function reviseChapter(chapterId: number | string, reviewResult: any, signal?: AbortSignal): Promise<any> {
+async function reviseChapter(
+  chapterId: number | string,
+  reviewResult: any,
+  userPrompt: string = '',
+  signal?: AbortSignal
+): Promise<any> {
   const taskId = `revise-${chapterId}-${Date.now()}`;
 
   if (!reviewResult?.issues?.length) {
@@ -228,6 +234,7 @@ async function reviseChapter(chapterId: number | string, reviewResult: any, sign
       {
         chapterId: Number(chapterId),
         reviewResult,
+        userPrompt,
         signal,
         taskId,
         chapter,

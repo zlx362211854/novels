@@ -235,6 +235,7 @@ interface ChapterMemoryAttributes {
   state_changes: string | null;
   open_threads: string | null;
   source_excerpt_map: string | null;
+  key_events: string | null;
   content_hash: string;
   created_at?: Date;
   updated_at?: Date;
@@ -253,6 +254,7 @@ class ChapterMemory extends Model<ChapterMemoryAttributes, ChapterMemoryCreation
   declare state_changes: string | null;
   declare open_threads: string | null;
   declare source_excerpt_map: string | null;
+  declare key_events: string | null;
   declare content_hash: string;
   declare created_at: Date;
   declare updated_at: Date;
@@ -301,6 +303,9 @@ ChapterMemory.init({
     type: DataTypes.TEXT
   },
   source_excerpt_map: {
+    type: DataTypes.TEXT
+  },
+  key_events: {
     type: DataTypes.TEXT
   },
   content_hash: {
@@ -586,6 +591,14 @@ async function ensureLegacySchema(): Promise<void> {
 
   if (!chapterColumns.publish_result) {
     await queryInterface.addColumn('chapters', 'publish_result', {
+      type: DataTypes.TEXT,
+      allowNull: true
+    });
+  }
+
+  const chapterMemoryColumns = await queryInterface.describeTable('chapter_memories').catch(() => null as any);
+  if (chapterMemoryColumns && !chapterMemoryColumns.key_events) {
+    await queryInterface.addColumn('chapter_memories', 'key_events', {
       type: DataTypes.TEXT,
       allowNull: true
     });

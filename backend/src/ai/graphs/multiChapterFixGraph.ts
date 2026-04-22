@@ -222,7 +222,6 @@ async function generateFixesNode(state: typeof MultiChapterFixState.State) {
   tracker.step(1);
 
   const llm = await createLLM({
-    provider: 'zhipu',
     temperature: 0.7,
     maxTokens: 12000,
   });

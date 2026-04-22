@@ -21,6 +21,15 @@ interface UpdateArchitectureData {
   metadata?: object;
 }
 
+function toJsonString(value: any): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    // 验证是否已经是合法 JSON，是则直接存，否则当普通字符串处理
+    try { JSON.parse(value); return value; } catch { return JSON.stringify(value); }
+  }
+  return JSON.stringify(value);
+}
+
 async function create(data: CreateArchitectureData): Promise<any> {
   const architecture = await Architecture.create({
     novel_id: data.novelId,
@@ -28,10 +37,10 @@ async function create(data: CreateArchitectureData): Promise<any> {
     parent_id: data.parentId || null,
     title: data.title,
     plot_outline: data.plotOutline || null,
-    characters: data.characters ? JSON.stringify(data.characters) : null,
-    world_setting: data.worldSetting ? JSON.stringify(data.worldSetting) : null,
+    characters: toJsonString(data.characters),
+    world_setting: toJsonString(data.worldSetting),
     emotional_tone: data.emotionalTone || null,
-    metadata: data.metadata ? JSON.stringify(data.metadata) : null
+    metadata: toJsonString(data.metadata),
   });
   return parseJsonFields(architecture);
 }
@@ -63,8 +72,8 @@ async function update(id: number | string, data: UpdateArchitectureData): Promis
 
   if (data.title !== undefined) architecture.title = data.title;
   if (data.plotOutline !== undefined) architecture.plot_outline = data.plotOutline;
-  if (data.characters !== undefined) architecture.characters = JSON.stringify(data.characters);
-  if (data.worldSetting !== undefined) architecture.world_setting = JSON.stringify(data.worldSetting);
+  if (data.characters !== undefined) architecture.characters = toJsonString(data.characters);
+  if (data.worldSetting !== undefined) architecture.world_setting = toJsonString(data.worldSetting);
   if (data.emotionalTone !== undefined) architecture.emotional_tone = data.emotionalTone;
   if (data.metadata !== undefined) architecture.metadata = JSON.stringify(data.metadata);
 

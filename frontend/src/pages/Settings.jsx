@@ -25,10 +25,12 @@ function Settings() {
     aiModel: 'zhipu',
     zhipuApiKey: '',
     deepseekApiKey: '',
+    minimaxApiKey: '',
     reviewStrictness: 'strict',
   });
   const [showZhipuKey, setShowZhipuKey] = useState(false);
   const [showDeepseekKey, setShowDeepseekKey] = useState(false);
+  const [showMinimaxKey, setShowMinimaxKey] = useState(false);
   const [publishPlatforms, setPublishPlatforms] = useState([]);
   const [publishConfig, setPublishConfig] = useState({});
   const [agentBrowserPath, setAgentBrowserPath] = useState('agent-browser');
@@ -48,6 +50,7 @@ function Settings() {
         aiModel: configRes.data.aiModel || 'zhipu',
         zhipuApiKey: configRes.data.zhipuApiKey || '',
         deepseekApiKey: configRes.data.deepseekApiKey || '',
+        minimaxApiKey: configRes.data.minimaxApiKey || '',
         reviewStrictness: configRes.data.reviewStrictness || 'strict',
       });
       setAgentBrowserPath(configRes.data.agentBrowserPath || 'agent-browser');
@@ -74,6 +77,7 @@ function Settings() {
         configApi.update('aiModel', editForm.aiModel, '当前使用的AI模型'),
         configApi.update('zhipuApiKey', editForm.zhipuApiKey, '智谱AI API密钥'),
         configApi.update('deepseekApiKey', editForm.deepseekApiKey, 'DeepSeek API密钥'),
+        configApi.update('minimaxApiKey', editForm.minimaxApiKey, 'MiniMax API密钥'),
         configApi.update('reviewStrictness', editForm.reviewStrictness, '审核严格度'),
       ]);
       feedback.success('配置保存成功！');
@@ -129,6 +133,7 @@ function Settings() {
                     <SelectContent>
                       <SelectItem value="zhipu">智谱 AI</SelectItem>
                       <SelectItem value="deepseek">DeepSeek</SelectItem>
+                      <SelectItem value="minimax">MiniMax</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -194,6 +199,29 @@ function Settings() {
                     onClick={() => setShowDeepseekKey(!showDeepseekKey)}
                   >
                     {showDeepseekKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="minimax-key">MiniMax API Key</Label>
+                <div className="relative">
+                  <Input
+                    id="minimax-key"
+                    type={showMinimaxKey ? 'text' : 'password'}
+                    value={editForm.minimaxApiKey}
+                    onChange={(e) => setEditForm({ ...editForm, minimaxApiKey: e.target.value })}
+                    placeholder="输入 MiniMax API 密钥"
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="absolute right-1 top-1/2 -translate-y-1/2"
+                    onClick={() => setShowMinimaxKey(!showMinimaxKey)}
+                  >
+                    {showMinimaxKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
                 </div>
               </div>

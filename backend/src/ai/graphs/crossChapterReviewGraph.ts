@@ -196,6 +196,8 @@ async function crossChapterReviewNode(state: typeof CrossChapterReviewState.Stat
   const prompt = buildCrossChapterReviewPrompt(state.chapters);
   const llm = await createLLM({
     temperature: 0.2,
+    maxTokens: 50000,
+    provider: 'minimax',
   });
 
   const content = await invokeWithStreaming(

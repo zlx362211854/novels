@@ -7,14 +7,16 @@ export interface AIConfig {
   zhipuApiUrl?: string;
   deepseekApiKey?: string;
   deepseekApiUrl?: string;
+  minimaxApiKey?: string;
   reviewStrictness?: string;
 }
 
 export interface LLMOptions {
   temperature?: number;
   maxTokens?: number;
-  provider?: 'deepseek' | 'zhipu';
+  provider?: 'deepseek' | 'zhipu' | 'minimax';
 }
+
 
 export async function getAIConfig(): Promise<AIConfig> {
   const configs = await SystemConfig.findAll();
@@ -29,22 +31,33 @@ export async function getAIConfig(): Promise<AIConfig> {
   });
 
   return {
-    aiModel: configMap.aiModel || process.env.DEFAULT_AI_MODEL || 'deepseek',
+    aiModel: configMap.aiModel || process.env.DEFAULT_AI_MODEL || 'minimax',
     zhipuApiKey: configMap.zhipuApiKey || process.env.ZHIPU_API_KEY,
     zhipuApiUrl: process.env.ZHIPU_API_URL,
     deepseekApiKey: configMap.deepseekApiKey || process.env.DEEPSEEK_API_KEY,
     deepseekApiUrl: process.env.DEEPSEEK_API_URL,
+    minimaxApiKey: configMap.minimaxApiKey || process.env.MINIMAX_API_KEY,
     reviewStrictness: configMap.reviewStrictness || process.env.REVIEW_STRICTNESS || 'strict',
   };
 }
 
 export async function createLLM(options: LLMOptions = {}): Promise<ChatOpenAI> {
   const config = await getAIConfig();
-  const provider = options.provider || (config.aiModel as 'deepseek' | 'zhipu') || 'deepseek';
+  const provider = options.provider || (config.aiModel as 'deepseek' | 'zhipu' | 'minimax') || 'minimax';
+
+  if (provider === 'minimax') {
+    return new ChatOpenAI({
+      model: 'MiniMax-M2.7',
+      temperature: options.temperature ?? 0.8,
+      maxTokens: options.maxTokens ?? 8000,
+      configuration: { baseURL: 'https://api.minimaxi.com/v1' },
+      apiKey: config.minimaxApiKey,
+    });
+  }
 
   if (provider === 'deepseek') {
     return new ChatOpenAI({
-      model: 'deepseek-chat',
+      model: 'deepseek-reasoner',
       temperature: options.temperature ?? 0.8,
       maxTokens: options.maxTokens ?? 8000,
       configuration: { baseURL: config.deepseekApiUrl },
@@ -52,6 +65,7 @@ export async function createLLM(options: LLMOptions = {}): Promise<ChatOpenAI> {
     });
   }
 
+  // zhipu
   return new ChatOpenAI({
     model: 'glm-5',
     temperature: options.temperature ?? 0.8,

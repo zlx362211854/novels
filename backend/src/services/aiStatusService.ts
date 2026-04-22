@@ -40,7 +40,7 @@ function startTickTimer(): void {
     if (!currentTask) { stopTickTimer(); return; }
     currentTask.elapsed = Math.round((Date.now() - currentTask.startedAt) / 1000);
     emitCurrentTask();
-  }, 5000);
+  }, 15000);
 }
 
 function stopTickTimer(): void {

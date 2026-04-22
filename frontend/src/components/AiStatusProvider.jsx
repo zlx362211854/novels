@@ -17,7 +17,9 @@ const STEP_LABELS = {
   '逐章生成修订稿': '正在逐章生成修订稿...',
   '保存草稿': '正在保存修订草稿...',
   '发布到七猫': '正在发布到七猫小说...',
-  '发布到番茄': '正在发布到番茄小说...'
+  '发布到番茄': '正在发布到番茄小说...',
+  '生成架构内容': 'AI 正在生成架构内容...',
+  '生成章节规划': 'AI 正在规划章节结构...'
 };
 
 function formatElapsed(seconds) {
@@ -36,6 +38,13 @@ export function AiStatusProvider({ children }) {
   const [open, setOpen] = useState(false);
   const esRef = useRef(null);
   const reconnectTimerRef = useRef(null);
+  const lastTaskIdRef = useRef(null);
+  const userClosedRef = useRef(false);
+
+  const handleSetOpen = (value) => {
+    if (!value) userClosedRef.current = true;
+    setOpen(value);
+  };
 
   useEffect(() => {
     function connect() {
@@ -48,7 +57,14 @@ export function AiStatusProvider({ children }) {
 
           setStatus(data);
 
-          if (data.status === 'running' || data.streamText) {
+          // 新任务开始时重置关闭标记并自动打开
+          if (data.taskId && data.taskId !== lastTaskIdRef.current) {
+            lastTaskIdRef.current = data.taskId;
+            userClosedRef.current = false;
+          }
+
+          // 只有用户没有手动关闭过，才自动打开
+          if (!userClosedRef.current && (data.status === 'running' || data.streamText)) {
             setOpen(true);
           }
         } catch (err) {
@@ -74,7 +90,7 @@ export function AiStatusProvider({ children }) {
   const value = useMemo(() => ({
     status,
     open,
-    setOpen,
+    setOpen: handleSetOpen,
   }), [status, open]);
 
   return (
@@ -94,7 +110,12 @@ export function AiStatusBar() {
   const open = context?.open;
   const setOpen = context?.setOpen;
   const [currentExpanded, setCurrentExpanded] = useState(true);
+  const [historyExpanded, setHistoryExpanded] = useState({});
   const historyLogs = Array.isArray(status?.stepLogs) ? status.stepLogs : [];
+
+  const toggleHistory = (index) => {
+    setHistoryExpanded((prev) => ({ ...prev, [index]: !prev[index] }));
+  };
 
   if (!status) return null;
 
@@ -112,7 +133,7 @@ export function AiStatusBar() {
         <button
           type="button"
           onClick={() => setOpen?.(true)}
-          className="fixed top-1/2 right-0 z-50 flex -translate-y-1/2 items-center gap-2 rounded-l-2xl border border-r-0 bg-background/95 px-3 py-3 text-sm shadow-lg backdrop-blur"
+          className="fixed top-1/2 right-0 z-[60] flex -translate-y-1/2 items-center gap-2 rounded-l-2xl border border-r-0 bg-background/95 px-3 py-3 text-sm shadow-lg backdrop-blur"
         >
           {isRunning ? <Loader2 className="size-4 animate-spin" /> : <Bot className="size-4" />}
           <span className="max-w-32 truncate">{status.label}</span>
@@ -121,7 +142,7 @@ export function AiStatusBar() {
       ) : null}
 
       <div
-        className={`fixed inset-y-0 right-0 z-50 w-full max-w-xl transform border-l bg-background/98 shadow-2xl backdrop-blur transition-transform duration-300 ${
+        className={`fixed inset-y-0 right-0 z-[60] w-full max-w-xl transform border-l bg-background/98 shadow-2xl backdrop-blur transition-transform duration-300 ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
@@ -207,16 +228,37 @@ export function AiStatusBar() {
                       <p className="mt-1 text-xs text-muted-foreground">步骤切换后会保留之前阶段的内容，方便回看</p>
                     </div>
                     <div className="max-h-[32rem] space-y-3 overflow-y-auto px-4 py-4">
-                      {historyLogs.map((item, index) => (
-                        <div key={`${item.stepLabel}-${index}`} className="rounded-lg border bg-slate-50/70">
-                          <div className="border-b px-3 py-2 text-xs font-medium text-slate-600">
-                            {humanStepLabel(item.stepLabel)}
+                      {historyLogs.map((item, index) => {
+                        const expanded = !!historyExpanded[index];
+                        return (
+                          <div key={`${item.stepLabel}-${index}`} className="rounded-lg border bg-slate-50/70">
+                            <div className="flex items-center justify-between px-3 py-2">
+                              <span className="text-xs font-medium text-slate-600">
+                                {humanStepLabel(item.stepLabel)}
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-xs"
+                                onClick={() => toggleHistory(index)}
+                              >
+                                {expanded ? (
+                                  <>收起<ChevronDown className="ml-1 size-3.5" /></>
+                                ) : (
+                                  <>展开<ChevronRight className="ml-1 size-3.5" /></>
+                                )}
+                              </Button>
+                            </div>
+                            {expanded ? (
+                              <div className="border-t">
+                                <pre className="whitespace-pre-wrap break-words px-4 py-4 text-xs leading-5 text-slate-700">
+                                  {item.text}
+                                </pre>
+                              </div>
+                            ) : null}
                           </div>
-                          <pre className="whitespace-pre-wrap break-words px-3 py-3 text-sm leading-6 text-slate-800">
-                            {item.text}
-                          </pre>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </section>
                 ) : null}

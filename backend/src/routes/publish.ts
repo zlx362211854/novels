@@ -1,10 +1,12 @@
 import { Router, Request, Response } from 'express';
+import { setMaxListeners } from 'events';
 import * as publishService from '../services/publishService';
 
 const router = Router();
 
 router.post('/:chapterId', async (req: Request, res: Response) => {
   const ac = new AbortController();
+  setMaxListeners(30, ac.signal);
   res.on('close', () => {
     if (!res.writableEnded) {
       console.log('[abort] 客户端断开 → publish 已中止');

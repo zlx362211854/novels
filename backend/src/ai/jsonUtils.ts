@@ -2,13 +2,32 @@ import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage } from '@langchain/core/messages';
 
 export function stripCodeFences(content: string): string {
-  return content.replace(/```(?:json)?/g, '').trim();
+  let result = content
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/```(?:json)?/g, '')
+    .trim();
+  while (result.includes('<think>')) {
+    const start = result.indexOf('<think>');
+    const end = result.indexOf('</think>', start);
+    if (end === -1) break;
+    result = result.slice(0, start) + result.slice(end + 7);
+  }
+  return result.trim();
 }
 
 export function extractJsonObject(content: string): string {
   const text = stripCodeFences(content);
-  const start = text.indexOf('{');
+  const objStart = text.indexOf('{');
+  const arrStart = text.indexOf('[');
+
+  // Pick whichever delimiter comes first
+  const isArray = arrStart !== -1 && (objStart === -1 || arrStart < objStart);
+  const start = isArray ? arrStart : objStart;
   if (start === -1) return '';
+
+  const openChar = isArray ? '[' : '{';
+  const closeChar = isArray ? ']' : '}';
 
   let depth = 0;
   let inString = false;
@@ -23,8 +42,8 @@ export function extractJsonObject(content: string): string {
       continue;
     }
     if (char === '"') { inString = true; continue; }
-    if (char === '{') depth++;
-    if (char === '}') {
+    if (char === openChar) depth++;
+    if (char === closeChar) {
       depth--;
       if (depth === 0) return text.slice(start, i + 1);
     }

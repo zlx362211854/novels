@@ -9,6 +9,7 @@ function buildContentHash(content: string): string {
 function normalizeMemoryCard(memoryCard: any = {}): any {
   return {
     summary: memoryCard.summary || '',
+    key_events: Array.isArray(memoryCard.key_events) ? memoryCard.key_events : [],
     entities: {
       characters: Array.isArray(memoryCard.entities?.characters) ? memoryCard.entities.characters : [],
       locations: Array.isArray(memoryCard.entities?.locations) ? memoryCard.entities.locations : [],
@@ -34,6 +35,7 @@ function parseJsonField(value: any, fallback: any): any {
 function serializeMemory(memory: any): any {
   return {
     summary: memory.summary,
+    key_events: JSON.stringify(memory.key_events || []),
     entities: JSON.stringify(memory.entities),
     facts: JSON.stringify(memory.facts),
     state_changes: JSON.stringify(memory.state_changes),
@@ -48,6 +50,7 @@ function deserializeMemory(row: any): any {
   const plain = typeof row.get === 'function' ? row.get({ plain: true }) : row;
   return {
     ...plain,
+    key_events: parseJsonField(plain.key_events, []),
     entities: parseJsonField(plain.entities, {
       characters: [],
       locations: [],
@@ -79,7 +82,7 @@ async function loadChapterContext(chapterId: number): Promise<any> {
   return { chapter, novel, architecture };
 }
 
-async function upsertForChapter(chapterId: number, signal?: AbortSignal): Promise<any> {
+async function upsertForChapter(chapterId: number, signal?: AbortSignal, options: { taskId?: string | null } = {}): Promise<any> {
   const { chapter, novel, architecture } = await loadChapterContext(chapterId);
 
   if (!chapter.content || !chapter.content.trim()) {
@@ -101,7 +104,10 @@ async function upsertForChapter(chapterId: number, signal?: AbortSignal): Promis
     const extracted = await chapterMemoryAgent.extractMemoryCard(
       { chapter, novel, architecture },
       signal,
-      { skipRepairOnParseFailure: existingNovelMemoryCount === 0 }
+      {
+        skipRepairOnParseFailure: existingNovelMemoryCount === 0,
+        taskId: options.taskId ?? null,
+      }
     );
     memory = normalizeMemoryCard(extracted);
   } catch (error: any) {
@@ -111,6 +117,7 @@ async function upsertForChapter(chapterId: number, signal?: AbortSignal): Promis
       );
       memory = normalizeMemoryCard({
         summary: '',
+        key_events: [],
         entities: {},
         facts: [],
         state_changes: [],

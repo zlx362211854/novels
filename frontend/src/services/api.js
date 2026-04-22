@@ -49,9 +49,12 @@ export const chapterApi = {
   generate: (id) => api.post(`/chapters/${id}/generate`),
   regenerate: (id) => api.post(`/chapters/${id}/regenerate`),
   review: (id) => api.post(`/chapters/${id}/review`),
-  revise: (id, reviewResult) => api.post(`/chapters/${id}/revise`, { reviewResult }),
+  revise: (id, reviewResult, userPrompt = '') => api.post(`/chapters/${id}/revise`, { reviewResult, userPrompt }),
   getVersions: (id) => api.get(`/chapters/${id}/versions`),
   restoreVersion: (id, version) => api.post(`/chapters/${id}/restore/${version}`),
+  getMemory: (id) => api.get(`/chapters/${id}/memory`),
+  updateMemory: (id, data) => api.put(`/chapters/${id}/memory`, data),
+  regenerateMemory: (id) => api.post(`/chapters/${id}/memory/regenerate`),
 };
 
 export const multiChapterReviewApi = {

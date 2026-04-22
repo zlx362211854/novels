@@ -191,23 +191,21 @@ function ArchitectureManager() {
   };
 
   const handleGenerate = async () => {
-    if (!formData.title.trim()) {
-      feedback.warning('请先输入架构标题，再让 AI 帮你展开内容。');
-      return;
-    }
     setGenerating(true);
     try {
       const res = await architectureApi.generateByAi(id, {
         level: formData.level,
         parentId: formData.parentId,
         title: formData.title,
+        plotOutline: formData.plotOutline,
       });
+      const data = res.data || {};
       setFormData((current) => ({
         ...current,
-        plotOutline: res.data.plotOutline || '',
-        characters: JSON.stringify(res.data.characters || {}, null, 2),
-        worldSetting: JSON.stringify(res.data.worldSetting || {}, null, 2),
-        emotionalTone: res.data.emotionalTone || '',
+        plotOutline: data.plot_outline || data.plotOutline || '',
+        characters: JSON.stringify(data.characters || {}, null, 2),
+        worldSetting: JSON.stringify(data.world_setting || data.worldSetting || {}, null, 2),
+        emotionalTone: data.emotional_tone || data.emotionalTone || '',
       }));
       feedback.success('AI 已补齐当前架构草稿，你可以继续微调后再保存。');
     } catch (error) {
@@ -256,15 +254,33 @@ function ArchitectureManager() {
   };
 
   const handleDelete = async (arch) => {
-    const confirmed = await feedback.confirm({
+    const levelLabel = arch.level === 'full' ? '全本架构' : arch.level === 'volume' ? '卷架构' : '章架构';
+    const note = arch.level === 'full'
+      ? '删除全本架构会同时移除所有关联信息，此操作不可恢复。'
+      : arch.level === 'volume'
+      ? '如果卷下还有章架构，删除后将一并移除，关联正文也会断开。'
+      : undefined;
+
+    // 第一次确认
+    const first = await feedback.confirm({
       title: `删除「${arch.title}」？`,
-      message: '删除后，这条架构及其关联关系将从工作台中移除。',
-      note: arch.level === 'volume' ? '如果卷下还有章架构，建议先确认是否需要保留。' : undefined,
-      confirmText: '确认删除',
-      cancelText: '保留',
+      message: `即将删除这条${levelLabel}及其关联关系。`,
+      note,
+      confirmText: '继续',
+      cancelText: '取消',
       variant: 'danger',
     });
-    if (!confirmed) return;
+    if (!first) return;
+
+    // 第二次确认
+    const second = await feedback.confirm({
+      title: '再次确认删除',
+      message: `「${arch.title}」删除后无法恢复，确定要继续吗？`,
+      confirmText: '确认删除',
+      cancelText: '我再想想',
+      variant: 'danger',
+    });
+    if (!second) return;
 
     try {
       await architectureApi.delete(arch.id);
@@ -285,8 +301,13 @@ function ArchitectureManager() {
     setGeneratedChapters([]);
     try {
       const res = await architectureApi.generateChapterArchitectures(id, selectedVolumeId);
-      setGeneratedChapters(res.data || []);
-      feedback.success(`已生成 ${res.data?.length || 0} 条章架构草稿。`);
+      const normalized = (res.data || []).map((ch, i) => ({
+        chapterNumber: ch.chapter_number ?? ch.chapterNumber ?? (i + 1),
+        title: ch.title || '',
+        plot_summary: ch.plot_summary || ch.summary || ch.plot_outline || ch.plotOutline || '',
+      }));
+      setGeneratedChapters(normalized);
+      feedback.success(`已生成 ${normalized.length} 条章架构草稿。`);
     } catch (error) {
       console.error('生成章架构失败:', error);
       feedback.error(error.response?.data?.error || '章架构生成失败，请稍后重试。');
@@ -298,7 +319,11 @@ function ArchitectureManager() {
   const handleSaveChapterBatch = async () => {
     if (generatedChapters.length === 0) return;
     try {
-      await architectureApi.batchCreateChapterArchitectures(id, selectedVolumeId, generatedChapters);
+      const chaptersToSave = generatedChapters.map((ch) => ({
+        title: ch.title,
+        plotOutline: ch.plot_summary || '',
+      }));
+      await architectureApi.batchCreateChapterArchitectures(id, selectedVolumeId, chaptersToSave);
       setShowChapterBatch(false);
       setGeneratedChapters([]);
       setSelectedVolumeId('');
@@ -707,7 +732,7 @@ function ArchitectureManager() {
                                           )}
                                         </div>
                                         <p className="mt-2 text-sm leading-6 text-slate-600 line-clamp-2">
-                                          {chapterArch.plot_outline || '还没有内容概括。'}
+                                          {chapterArch.plot_outline || chapterArch.plot_summary || '还没有内容概括。'}
                                         </p>
                                       </div>
                                       <div className="flex items-center gap-1.5 shrink-0">
@@ -776,7 +801,7 @@ function ArchitectureManager() {
       </SectionCard>
 
       {/* Create/Edit Dialog */}
-      <Dialog open={showCreate || !!editingId} onOpenChange={(open) => !open && closeEditor()}>
+      <Dialog open={showCreate || !!editingId} onOpenChange={(open) => !open && closeEditor()} disablePointerDismissal>
         <DialogContent className="sm:max-w-4xl bg-white max-h-[90vh] overflow-hidden flex flex-col p-0">
           <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
             <DialogTitle>{editingId ? '编辑架构' : '创建架构'}</DialogTitle>
@@ -1012,8 +1037,8 @@ function ArchitectureManager() {
                         />
                       </div>
                       <Textarea
-                        value={chapter.plotOutline}
-                        onChange={(event) => updateGeneratedChapter(index, 'plotOutline', event.target.value)}
+                        value={chapter.plot_summary}
+                        onChange={(event) => updateGeneratedChapter(index, 'plot_summary', event.target.value)}
                         rows={3}
                         className="mt-3"
                         placeholder="章节概括"

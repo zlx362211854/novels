@@ -5,6 +5,8 @@ interface GenerateArchitectureParams {
   level: string;
   parentId?: number;
   title?: string;
+  plotOutline?: string;
+  taskId?: string;
 }
 
 async function generateArchitecture(params: GenerateArchitectureParams, signal?: AbortSignal): Promise<any> {
@@ -14,9 +16,13 @@ async function generateArchitecture(params: GenerateArchitectureParams, signal?:
       level: params.level,
       parentId: params.parentId,
       title: params.title || '',
-      signal,
+      plotOutline: params.plotOutline,
+      taskId: params.taskId ?? null,
+      signal: signal ?? undefined,
       novel: null,
       parentContext: '',
+      siblingContext: '',
+      volumeNumber: null,
       result: null,
     },
     { signal }
@@ -30,7 +36,8 @@ async function generateChapterArchitectures(params: any, signal?: AbortSignal): 
     {
       novelId: params.novelId,
       volumeId: params.volumeId,
-      signal,
+      taskId: params.taskId ?? null,
+      signal: signal ?? undefined,
       novel: null,
       volume: null,
       fullArch: null,

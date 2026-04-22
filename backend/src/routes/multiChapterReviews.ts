@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { setMaxListeners } from 'events';
 import * as service from '../services/multiChapterReviewService';
 
 const router = Router();
@@ -6,6 +7,7 @@ const router = Router();
 // 发起跨章审阅
 router.post('/', async (req: Request, res: Response) => {
   const ac = new AbortController();
+  setMaxListeners(30, ac.signal);
   res.on('close', () => { if (!res.writableEnded) ac.abort(); });
   try {
     (req as any).setTimeout(0);
@@ -44,6 +46,7 @@ router.get('/:reviewId', async (req: Request, res: Response) => {
 // 发起修订（手动触发）
 router.post('/:reviewId/fix', async (req: Request, res: Response) => {
   const ac = new AbortController();
+  setMaxListeners(30, ac.signal);
   res.on('close', () => { if (!res.writableEnded) ac.abort(); });
   try {
     (req as any).setTimeout(0);

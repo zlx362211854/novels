@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
-import { chapterApi } from '../services/api';
+import { chapterApi, architectureApi } from '../services/api';
 import PublishDialog from '../components/PublishDialog';
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import { MarkdownEditor } from '../components/ui/MarkdownEditor';
@@ -9,8 +9,8 @@ import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
+import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
-import { Tabs, TabsContent } from '../components/ui/tabs';
 import { Alert, AlertTitle, AlertDescription } from '../components/ui/alert';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
@@ -30,6 +30,9 @@ import {
   CheckCircle,
   Info,
   Upload,
+  BookOpen,
+  ChevronRight,
+  Brain,
 } from 'lucide-react';
 
 function statusVariant(status) {
@@ -74,6 +77,17 @@ function ChapterDetail() {
   const [reviewing, setReviewing] = useState(false);
   const [revising, setRevising] = useState(false);
   const [showPublishDialog, setShowPublishDialog] = useState(false);
+  const [architecture, setArchitecture] = useState(null);
+  const [editingArchitecture, setEditingArchitecture] = useState(false);
+  const [architecturePlotOutline, setArchitecturePlotOutline] = useState('');
+  const [savingArchitecture, setSavingArchitecture] = useState(false);
+  const [memory, setMemory] = useState(null);
+  const [memoryMode, setMemoryMode] = useState('read'); // 'read' | 'edit'
+  const [editMemory, setEditMemory] = useState(null);
+  const [savingMemory, setSavingMemory] = useState(false);
+  const [regeneratingMemory, setRegeneratingMemory] = useState(false);
+  const [reviseIdea, setReviseIdea] = useState('');
+  const [nextChapter, setNextChapter] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -87,11 +101,44 @@ function ChapterDetail() {
         chapterApi.getVersions(id),
       ]);
 
-      setChapter(chapterRes.data);
-      setEditContent(chapterRes.data.content || '');
-      setEditTitle(chapterRes.data.title || '');
-      setReview(chapterRes.data.review_result || null);
+      const chapterData = chapterRes.data;
+      setChapter(chapterData);
+      setEditContent(chapterData.content || '');
+      setEditTitle(chapterData.title || '');
+      setReview(chapterData.review_result || null);
       setVersions(versionRes.data);
+
+      if (chapterData.architecture_id) {
+        try {
+          const archRes = await architectureApi.getById(chapterData.architecture_id);
+          setArchitecture(archRes.data);
+          setArchitecturePlotOutline(archRes.data?.plot_outline || '');
+        } catch (e) {
+          console.error('加载章节架构失败:', e);
+        }
+      }
+      try {
+        const memRes = await chapterApi.getMemory(id);
+        if (memRes.data) {
+          setMemory(memRes.data);
+        }
+      } catch (e) {
+        console.error('加载记忆卡失败:', e);
+      }
+
+      if (chapterData.novel_id) {
+        try {
+          const chaptersRes = await chapterApi.getByNovelId(chapterData.novel_id);
+          const sortedChapters = [...chaptersRes.data].sort(
+            (left, right) => (left.chapter_number || 0) - (right.chapter_number || 0)
+          );
+          const currentIndex = sortedChapters.findIndex((item) => item.id === chapterData.id);
+          setNextChapter(currentIndex >= 0 ? sortedChapters[currentIndex + 1] || null : null);
+        } catch (nextError) {
+          console.error('加载下一章信息失败:', nextError);
+          setNextChapter(null);
+        }
+      }
     } catch (error) {
       console.error('加载数据失败:', error);
       feedback.error('章节内容加载失败，请稍后重试。');
@@ -264,13 +311,20 @@ function ChapterDetail() {
 
     setRevising(true);
     try {
-      const res = await chapterApi.revise(id, review);
+      const res = await chapterApi.revise(id, review, reviseIdea);
       setChapter(res.data.chapter);
       setEditContent(res.data.chapter.content || '');
       setEditTitle(res.data.chapter.title || '');
       setReview(res.data.review || null);
+      try {
+        const memoryRes = await chapterApi.getMemory(id);
+        setMemory(memoryRes.data || null);
+      } catch (memoryError) {
+        console.error('刷新记忆卡失败:', memoryError);
+      }
       await refreshVersions();
       setMode('edit');
+      setReviseIdea('');
       feedback.success('修订稿已应用到当前章节，可在历史版本中回退。');
     } catch (error) {
       console.error('生成修订稿失败:', error);
@@ -300,6 +354,89 @@ function ChapterDetail() {
     } catch (error) {
       console.error('恢复失败:', error);
       feedback.error('恢复失败，请稍后再试。');
+    }
+  };
+
+  const handleEditMemory = () => {
+    setEditMemory({
+      summary: memory?.summary || '',
+      key_events: memory?.key_events || [],
+      entities: memory?.entities || { characters: [], locations: [], items: [], organizations: [] },
+      facts: memory?.facts || [],
+      state_changes: memory?.state_changes || [],
+      open_threads: memory?.open_threads || [],
+    });
+    setMemoryMode('edit');
+  };
+
+  const handleSaveMemory = async () => {
+    setSavingMemory(true);
+    try {
+      const res = await chapterApi.updateMemory(id, editMemory);
+      setMemory(res.data);
+      setMemoryMode('read');
+      feedback.success('记忆卡已保存。');
+    } catch (error) {
+      feedback.error(error.response?.data?.error || '保存失败');
+    } finally {
+      setSavingMemory(false);
+    }
+  };
+
+  const handleCancelMemory = () => {
+    setEditMemory(null);
+    setMemoryMode('read');
+  };
+
+  const handleRegenerateMemory = async () => {
+    const confirmed = await feedback.confirm({
+      title: '重新提取记忆卡？',
+      message: 'AI 会重新读取本章正文并提取记忆卡，当前手动编辑的内容会被覆盖。',
+      confirmText: '重新提取',
+      cancelText: '取消',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    setRegeneratingMemory(true);
+    try {
+      const res = await chapterApi.regenerateMemory(id);
+      setMemory(res.data);
+      setMemoryMode('read');
+      feedback.success('记忆卡已重新提取。');
+    } catch (error) {
+      feedback.error(error.response?.data?.error || '提取失败');
+    } finally {
+      setRegeneratingMemory(false);
+    }
+  };
+
+  const handleEditArchitecture = () => {
+    setArchitecturePlotOutline(architecture?.plot_outline || '');
+    setEditingArchitecture(true);
+  };
+
+  const handleCancelArchitectureEdit = () => {
+    setArchitecturePlotOutline(architecture?.plot_outline || '');
+    setEditingArchitecture(false);
+  };
+
+  const handleSaveArchitecture = async () => {
+    if (!architecture?.id) return;
+    setSavingArchitecture(true);
+    try {
+      const res = await architectureApi.update(architecture.id, {
+        title: architecture.title,
+        plotOutline: architecturePlotOutline,
+      });
+      setArchitecture(res.data);
+      setArchitecturePlotOutline(res.data?.plot_outline || '');
+      setEditingArchitecture(false);
+      feedback.success('本章架构情节概要已保存。');
+    } catch (error) {
+      console.error('保存本章架构失败:', error);
+      feedback.error(error.response?.data?.error || '保存失败，请稍后再试。');
+    } finally {
+      setSavingArchitecture(false);
     }
   };
 
@@ -373,10 +510,296 @@ function ChapterDetail() {
                 编辑
               </Button>
             )}
+            {nextChapter ? (
+              <Button size="sm" variant="outline" asChild>
+                <Link to={`/chapters/${nextChapter.id}`} className="flex items-center justify-center">
+                  下一章
+                  <ChevronRight className="ml-1.5 size-4" />
+                </Link>
+              </Button>
+            ) : null}
           </div>
         }
       >
         <StatGrid items={stats} />
+
+        {architecture && (
+          <SectionCard
+            title="本章架构"
+            description="生成正文时所参考的章节架构信息，包括情节概要与人物设定。"
+            actions={
+              editingArchitecture ? (
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={handleCancelArchitectureEdit}>
+                    <X className="size-4" />
+                    取消
+                  </Button>
+                  <Button size="sm" onClick={handleSaveArchitecture} disabled={savingArchitecture}>
+                    <Save className="size-4" />
+                    {savingArchitecture ? '保存中...' : '保存概要'}
+                  </Button>
+                </div>
+              ) : (
+                <Button size="sm" variant="outline" onClick={handleEditArchitecture}>
+                  <Edit3 className="size-4" />
+                  编辑概要
+                </Button>
+              )
+            }
+          >
+            <div className="space-y-4">
+              {(architecture.plot_outline || editingArchitecture) && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    <BookOpen className="size-4 text-slate-500" />
+                    情节概要
+                  </div>
+                  {editingArchitecture ? (
+                    <Textarea
+                      value={architecturePlotOutline}
+                      onChange={(event) => setArchitecturePlotOutline(event.target.value)}
+                      rows={10}
+                      className="text-sm leading-7"
+                      placeholder="输入本章架构的情节概要..."
+                    />
+                  ) : (
+                    <p className="text-sm leading-7 text-slate-600 whitespace-pre-wrap">
+                      {architecture.plot_outline}
+                    </p>
+                  )}
+                </div>
+              )}
+              {(() => {
+                let chars = null;
+                try { chars = typeof architecture.characters === 'string' ? JSON.parse(architecture.characters) : architecture.characters; } catch { /* ignore */ }
+                if (!chars || (typeof chars === 'object' && !Array.isArray(chars) && Object.keys(chars).length === 0)) return null;
+                const list = Array.isArray(chars) ? chars : Object.values(chars);
+                if (!list.length) return null;
+                return (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                    <p className="mb-3 text-sm font-semibold text-slate-700">本章人物</p>
+                    <div className="flex flex-wrap gap-2">
+                      {list.map((c, i) => (
+                        <Badge key={i} variant="outline" className="text-xs">
+                          {typeof c === 'string' ? c : (c.name || JSON.stringify(c))}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </SectionCard>
+        )}
+
+        {/* 记忆卡 */}
+        <SectionCard
+          title="记忆卡"
+          description="AI 从本章正文提取的结构化信息，用于跨章节逻辑审核。可手动修正或重新提取。"
+          actions={
+            memoryMode === 'read' ? (
+              <div className="flex gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="sm" onClick={handleRegenerateMemory} disabled={regeneratingMemory}>
+                      <RefreshCw className="size-4" />
+                      {regeneratingMemory ? '提取中...' : memory ? '重新提取' : '生成记忆卡'}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{memory ? 'AI 重新读取正文提取记忆卡' : '为当前章节生成结构化记忆卡'}</TooltipContent>
+                </Tooltip>
+                {memory ? (
+                  <Button size="sm" onClick={handleEditMemory}>
+                    <Edit3 className="size-4" />
+                    编辑
+                  </Button>
+                ) : null}
+              </div>
+            ) : memory && memoryMode === 'edit' ? (
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={handleCancelMemory}>
+                  <X className="size-4" />取消
+                </Button>
+                <Button size="sm" onClick={handleSaveMemory} disabled={savingMemory}>
+                  <Save className="size-4" />
+                  {savingMemory ? '保存中...' : '保存'}
+                </Button>
+              </div>
+            ) : null
+          }
+        >
+          {!memory ? (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+              <Brain className="mx-auto mb-2 size-8 text-slate-400" />
+              还没有记忆卡。生成或保存章节正文后会自动提取。
+            </div>
+          ) : memoryMode === 'read' ? (
+            <div className="space-y-3">
+              {memory.key_events?.length > 0 && (
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-indigo-600">本章关键事件</p>
+                  <div className="space-y-2">
+                    {memory.key_events.map((e, i) => (
+                      <div key={i} className="flex items-start gap-3 text-sm">
+                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-600">{i + 1}</span>
+                        <div className="min-w-0 flex-1">
+                          <span className="font-medium text-slate-800">{e.event}</span>
+                          {e.characters?.length > 0 && (
+                            <span className="ml-2 text-slate-500">
+                              {e.characters.join('、')}
+                            </span>
+                          )}
+                          {e.time && (
+                            <Badge variant="outline" className="ml-2 text-xs text-slate-400">{e.time}</Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {memory.summary && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-slate-500">概要</p>
+                  <p className="text-sm leading-7 text-slate-700">{memory.summary}</p>
+                </div>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2">
+                {['characters', 'locations', 'items', 'organizations'].map((key) => {
+                  const labels = { characters: '人物', locations: '地点', items: '物品', organizations: '组织' };
+                  const list = memory.entities?.[key] || [];
+                  if (!list.length) return null;
+                  return (
+                    <div key={key} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">{labels[key]}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {list.map((item, i) => (
+                          <Badge key={i} variant="outline" className="text-xs">{item}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {memory.state_changes?.length > 0 && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">状态变化</p>
+                  <div className="space-y-1">
+                    {memory.state_changes.map((s, i) => (
+                      <div key={i} className="flex items-center gap-2 text-sm text-slate-600">
+                        <Badge variant="outline" className="text-xs shrink-0">{s.entity}</Badge>
+                        <span className="text-slate-400">{s.from ?? '?'}</span>
+                        <ChevronRight className="size-3 text-slate-400 shrink-0" />
+                        <span className="text-slate-700 font-medium">{s.to ?? '?'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {memory.facts?.length > 0 && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">事实</p>
+                  <div className="space-y-1">
+                    {memory.facts.map((f, i) => (
+                      <p key={i} className="text-sm text-slate-600">
+                        <span className="font-medium text-slate-800">{f.subject}</span>
+                        {' '}{f.predicate}{' '}
+                        <span className="text-slate-700">{f.object}</span>
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {memory.open_threads?.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-amber-600">未解悬念</p>
+                  <div className="space-y-1">
+                    {memory.open_threads.map((t, i) => (
+                      <p key={i} className="text-sm text-amber-800">{t.thread ?? t}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* 编辑模式 */
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">概要</Label>
+                <Textarea
+                  value={editMemory.summary}
+                  onChange={(e) => setEditMemory({ ...editMemory, summary: e.target.value })}
+                  rows={3}
+                  className="text-sm"
+                />
+              </div>
+              {['characters', 'locations', 'items', 'organizations'].map((key) => {
+                const labels = { characters: '人物', locations: '地点', items: '物品', organizations: '组织' };
+                return (
+                  <div key={key} className="space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">{labels[key]}（逗号分隔）</Label>
+                    <Input
+                      value={(editMemory.entities?.[key] || []).join('、')}
+                      onChange={(e) => setEditMemory({
+                        ...editMemory,
+                        entities: {
+                          ...editMemory.entities,
+                          [key]: e.target.value.split(/[,，、]/).map(s => s.trim()).filter(Boolean),
+                        },
+                      })}
+                      className="text-sm"
+                    />
+                  </div>
+                );
+              })}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">状态变化（JSON 数组）</Label>
+                <Textarea
+                  value={JSON.stringify(editMemory.state_changes || [], null, 2)}
+                  onChange={(e) => {
+                    try { setEditMemory({ ...editMemory, state_changes: JSON.parse(e.target.value) }); } catch { /* ignore invalid JSON */ }
+                  }}
+                  rows={4}
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">事实（JSON 数组）</Label>
+                <Textarea
+                  value={JSON.stringify(editMemory.facts || [], null, 2)}
+                  onChange={(e) => {
+                    try { setEditMemory({ ...editMemory, facts: JSON.parse(e.target.value) }); } catch { /* ignore invalid JSON */ }
+                  }}
+                  rows={6}
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">未解悬念（JSON 数组）</Label>
+                <Textarea
+                  value={JSON.stringify(editMemory.open_threads || [], null, 2)}
+                  onChange={(e) => {
+                    try { setEditMemory({ ...editMemory, open_threads: JSON.parse(e.target.value) }); } catch { /* ignore invalid JSON */ }
+                  }}
+                  rows={3}
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">关键事件（JSON 数组）</Label>
+                <Textarea
+                  value={JSON.stringify(editMemory.key_events || [], null, 2)}
+                  onChange={(e) => {
+                    try { setEditMemory({ ...editMemory, key_events: JSON.parse(e.target.value) }); } catch { /* ignore invalid JSON */ }
+                  }}
+                  rows={5}
+                  className="font-mono text-xs"
+                  placeholder='[{"event": "林霄发现玄铁佩", "characters": ["林霄"], "time": "入夜"}]'
+                />
+              </div>
+            </div>
+          )}
+        </SectionCard>
 
         <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
           <SectionCard
@@ -483,6 +906,20 @@ function ChapterDetail() {
                     </div>
                   </AlertTitle>
                   <AlertDescription>
+                    {(review.issues?.length || review.notes?.length) ? (
+                      <div className="mt-3 rounded-lg border border-slate-200 bg-white/80 px-3 py-3">
+                        <Label htmlFor="revise-idea" className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
+                          你对这一章的补充想法
+                        </Label>
+                        <Textarea
+                          id="revise-idea"
+                          value={reviseIdea}
+                          onChange={(event) => setReviseIdea(event.target.value)}
+                          placeholder="例如：保留这一章压抑的氛围；不要大改前半段；把主角的动机写得更坚定一些。"
+                          className="mt-2 min-h-24 bg-white"
+                        />
+                      </div>
+                    ) : null}
                     {review.issues?.length ? (
                       <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
                         {review.issues.map((issue, index) => (
@@ -596,7 +1033,7 @@ function ChapterDetail() {
           title={mode === 'edit' ? '精修工作区' : '阅读视图'}
           description={
             mode === 'edit'
-              ? '左侧编辑，右侧预览；如果只是看内容，可以随时回到阅读视图。'
+              ? '专注编辑，可切换到阅读视图查看效果。'
               : '先通读整章，再判断是继续润色、重生成，还是回退旧版本。'
           }
           actions={
@@ -633,56 +1070,34 @@ function ChapterDetail() {
           }
         >
           {mode === 'edit' ? (
-            <Tabs defaultValue="edit" className="w-full">
-              <TabsContent value="edit">
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label>章节标题</Label>
-                        {hasUnsavedChanges && (
-                          <Badge variant="secondary" className="text-xs">
-                            未保存
-                          </Badge>
-                        )}
-                      </div>
-                      <Input
-                        value={editTitle}
-                        onChange={(event) => setEditTitle(event.target.value)}
-                        placeholder="输入章节标题"
-                        className="text-lg font-semibold"
-                      />
-                    </div>
-                    <div className="space-y-2 flex-1 flex flex-col min-h-0">
-                      <Label>正文内容</Label>
-                      <div className="flex-1 min-h-0 rounded-md border border-slate-200 overflow-hidden">
-                        <MarkdownEditor
-                          value={editContent}
-                          onChange={setEditContent}
-                          placeholder="在这里撰写章节内容，支持 Markdown。"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-4">
-                    <p className="mb-3 text-sm font-medium text-slate-600">实时预览</p>
-                    <ScrollArea>
-                      <div className="prose prose-slate max-w-none pr-4">
-                        <ReactMarkdown>{editContent || '*暂无内容*'}</ReactMarkdown>
-                      </div>
-                    </ScrollArea>
-                  </div>
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>章节标题</Label>
+                  {hasUnsavedChanges && (
+                    <Badge variant="secondary" className="text-xs">
+                      未保存
+                    </Badge>
+                  )}
                 </div>
-              </TabsContent>
-
-              <TabsContent value="preview">
-                <ScrollArea className="h-[600px]">
-                  <div className="prose prose-lg max-w-none p-4">
-                    <ReactMarkdown>{editContent || '*暂无内容*'}</ReactMarkdown>
-                  </div>
-                </ScrollArea>
-              </TabsContent>
-            </Tabs>
+                <Input
+                  value={editTitle}
+                  onChange={(event) => setEditTitle(event.target.value)}
+                  placeholder="输入章节标题"
+                  className="text-lg font-semibold"
+                />
+              </div>
+              <div className="space-y-2 flex-1 flex flex-col min-h-0">
+                <Label>正文内容</Label>
+                <div className="flex-1 min-h-0 rounded-md border border-slate-200 overflow-hidden">
+                  <MarkdownEditor
+                    value={editContent}
+                    onChange={setEditContent}
+                    placeholder="在这里撰写章节内容，支持 Markdown。"
+                  />
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-3 flex flex-wrap items-center gap-2">

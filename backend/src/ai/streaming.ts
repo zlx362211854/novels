@@ -6,6 +6,8 @@ function chunkToText(content: any): string {
   if (Array.isArray(content)) {
     return content.map((item) => {
       if (typeof item === 'string') return item;
+      // thinking 块：内容在 item.thinking 字段，包裹 <think> 标签后推给前端显示
+      if (item?.type === 'thinking') return item.thinking ? `<think>${item.thinking}</think>` : '';
       if (item?.type === 'text') return item.text || '';
       if (item?.type === 'text_delta') return item.text || '';
       if (item?.type === 'output_text') return item.text || '';
@@ -77,5 +79,6 @@ export async function invokeWithStreaming(
     }
   }
 
-  return fullText;
+  // 兜底：若模型将 <think> 标签直接写入文本字段，在此剥离
+  return fullText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 }

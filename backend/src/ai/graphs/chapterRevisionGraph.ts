@@ -13,8 +13,9 @@ const ChapterRevisionState = Annotation.Root({
   // Inputs
   chapterId: Annotation<number>,
   reviewResult: Annotation<any>,
+  userPrompt: Annotation<string>,
   signal: Annotation<AbortSignal | undefined>,
-  taskId: Annotation<string>,
+  taskId: Annotation<string | null>,
 
   // Intermediate
   chapter: Annotation<any>,
@@ -31,13 +32,21 @@ function formatArchitecture(architecture: any): string {
   return `层级: ${architecture.level}\n标题: ${architecture.title}\n情节: ${architecture.plot_outline || ''}\n`;
 }
 
-function buildRevisionPrompt(chapter: any, novel: any, architecture: any, reviewResult: any): string {
+function buildRevisionPrompt(
+  chapter: any,
+  novel: any,
+  architecture: any,
+  reviewResult: any,
+  userPrompt: string = ''
+): string {
+  const originalLength = (chapter.content || '').length;
   return `你是一位专业的网络小说编辑，请根据审阅意见修订章节。
 
 ## 章节信息
 标题：${chapter.title || ''}
 序号：第${chapter.chapter_number}章
 正文：${(chapter.content || '')}...
+原文字数：约${originalLength}字
 
 ## 小说信息
 标题：${novel.title}
@@ -49,8 +58,14 @@ ${formatArchitecture(architecture)}
 ## 审阅意见
 ${JSON.stringify(reviewResult.issues || [], null, 2)}
 
+## 用户补充要求
+${userPrompt?.trim() || '无'}
+
 ## 要求
 请生成修订后的章节内容，保留原有风格，只修复问题。
+如果“用户补充要求”与审阅意见不冲突，优先吸收；如果冲突，请以修复硬逻辑问题为先，同时尽量满足用户意图。
+修订后的正文篇幅要保持在 5000 字左右，尽量接近原文体量，不要为了修订问题而大幅压缩剧情、删减场景或改写成摘要版。
+除非审阅意见明确要求删除重复内容或明显无效内容，否则不要随意删段；优先局部改写、补充衔接、修正细节，而不是整体缩写。
 
 请返回JSON格式：{ "revisedContent": "string", "summary": "string", "appliedIssues": ["string"] }`;
 }
@@ -67,16 +82,20 @@ async function loadContextNode(state: typeof ChapterRevisionState.State) {
   if (!novel) throw new Error('小说不存在');
 
   console.log(`[chapter-revise] 开始修订: chapterId=${state.chapterId} title="${chapter.title || '未命名'}"`);
-  const tracker = createProgressTracker(state.taskId, STEPS);
-  tracker.start(`修订「${chapter.title || '章节'}」`);
+  if (state.taskId) {
+    const tracker = createProgressTracker(state.taskId, STEPS);
+    tracker.start(`修订「${chapter.title || '章节'}」`);
+  }
 
   return { chapter, novel };
 }
 
 // Node: build review context
 async function buildContextNode(state: typeof ChapterRevisionState.State) {
-  const tracker = createProgressTracker(state.taskId, STEPS);
-  tracker.step(0);
+  if (state.taskId) {
+    const tracker = createProgressTracker(state.taskId, STEPS);
+    tracker.step(0);
+  }
 
   const reviewContext = await reviewContextService.buildReviewContext(
     Number(state.chapterId),
@@ -88,15 +107,18 @@ async function buildContextNode(state: typeof ChapterRevisionState.State) {
 // Node: call LLM for revision
 async function runRevisionNode(state: typeof ChapterRevisionState.State) {
   console.log(`[chapter-revise] 调用 LLM 修订章节... chapterId=${state.chapterId}`);
-  const tracker = createProgressTracker(state.taskId, STEPS);
-  tracker.step(1);
+  if (state.taskId) {
+    const tracker = createProgressTracker(state.taskId, STEPS);
+    tracker.step(1);
+  }
 
-  const llm = await createLLM({ temperature: 0.7, maxTokens: 12000, provider: 'zhipu' });
+  const llm = await createLLM({ temperature: 0.7, maxTokens: 40000, provider: 'minimax' });
   const prompt = buildRevisionPrompt(
     state.chapter,
     state.novel,
     state.reviewContext?.architecture,
-    state.reviewResult
+    state.reviewResult,
+    state.userPrompt
   );
 
   const content = await invokeWithStreaming(
@@ -124,8 +146,10 @@ async function runRevisionNode(state: typeof ChapterRevisionState.State) {
 // Node: save the revised content to DB
 async function saveResultNode(state: typeof ChapterRevisionState.State) {
   console.log(`[chapter-revise] 保存修订内容到数据库... chapterId=${state.chapterId}`);
-  const tracker = createProgressTracker(state.taskId, STEPS);
-  tracker.step(2);
+  if (state.taskId) {
+    const tracker = createProgressTracker(state.taskId, STEPS);
+    tracker.step(2);
+  }
 
   const chapterRecord = await Chapter.findByPk(state.chapterId);
   if (!chapterRecord) throw new Error('章节不存在');
@@ -142,6 +166,7 @@ async function saveResultNode(state: typeof ChapterRevisionState.State) {
 
   chapterRecord.content = state.revisionResult.revisedContent;
   chapterRecord.status = chapterRecord.status || 'generated';
+  chapterRecord.review_result = null;
   await chapterRecord.save();
 
   const updatedChapter = await Chapter.findByPk(state.chapterId);
@@ -150,8 +175,10 @@ async function saveResultNode(state: typeof ChapterRevisionState.State) {
 
 // Node: extract memory for the revised chapter
 async function extractMemoryNode(state: typeof ChapterRevisionState.State) {
-  const tracker = createProgressTracker(state.taskId, STEPS);
-  tracker.step(3);
+  if (state.taskId) {
+    const tracker = createProgressTracker(state.taskId, STEPS);
+    tracker.step(3);
+  }
 
   try {
     await chapterMemoryService.upsertForChapter(Number(state.chapterId), state.signal);
@@ -164,8 +191,10 @@ async function extractMemoryNode(state: typeof ChapterRevisionState.State) {
 // Node: finalize and report completion
 async function finalizeNode(state: typeof ChapterRevisionState.State) {
   console.log(`[chapter-revise] 修订流程完成 chapterId=${state.chapterId}`);
-  const tracker = createProgressTracker(state.taskId, STEPS);
-  tracker.finish();
+  if (state.taskId) {
+    const tracker = createProgressTracker(state.taskId, STEPS);
+    tracker.finish();
+  }
   return {};
 }
 
@@ -185,4 +214,4 @@ const graph = new StateGraph(ChapterRevisionState)
   .addEdge('finalize', END)
   .compile();
 
-export { graph as chapterRevisionGraph, ChapterRevisionState };
+export { graph as chapterRevisionGraph, ChapterRevisionState, buildRevisionPrompt };

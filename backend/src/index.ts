@@ -1,8 +1,11 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import * as events from 'events';
 import { initDatabase } from './models/sequelize';
 import * as scheduleService from './services/scheduleService';
+
+events.setMaxListeners(100);
 
 import novelsRouter from './routes/novels';
 import architecturesRouter from './routes/architectures';

@@ -30,9 +30,22 @@ function collectQueryTerms(memoryCard: any = {}): string[] {
     fact.object
   ]);
 
+  const stateTerms = (memoryCard.state_changes || []).flatMap((change: any) => [
+    change.entity,
+    change.field,
+    change.before,
+    change.after
+  ]);
+
+  const eventTerms = (memoryCard.key_events || []).flatMap((event: any) => [
+    event.event,
+    event.time,
+    ...(Array.isArray(event.characters) ? event.characters : [])
+  ]);
+
   const threadTerms = (memoryCard.open_threads || []).map((thread: any) => thread.thread);
 
-  return uniqueTerms([...entityTerms, ...factTerms, ...threadTerms]);
+  return uniqueTerms([...entityTerms, ...factTerms, ...stateTerms, ...eventTerms, ...threadTerms]);
 }
 
 function overlapCount(left: string[], right: string[]): number {
@@ -60,10 +73,37 @@ function scoreMemoryMatch(currentMemory: any, historicalMemory: any): number {
   const currentThreadTerms = uniqueTerms((currentMemory.open_threads || []).map((thread: any) => thread.thread));
   const historicalThreadTerms = uniqueTerms((historicalMemory.open_threads || []).map((thread: any) => thread.thread));
 
+  const currentEventTerms = uniqueTerms((currentMemory.key_events || []).flatMap((event: any) => [
+    event.event,
+    event.time,
+    ...(Array.isArray(event.characters) ? event.characters : [])
+  ]));
+  const historicalEventTerms = uniqueTerms((historicalMemory.key_events || []).flatMap((event: any) => [
+    event.event,
+    event.time,
+    ...(Array.isArray(event.characters) ? event.characters : [])
+  ]));
+
+  // state_changes：同一实体/字段/前后状态命中时，通常最能说明跨章承接问题
+  const currentStateTerms = uniqueTerms((currentMemory.state_changes || []).flatMap((s: any) => [
+    s.entity,
+    s.field,
+    s.before,
+    s.after
+  ]));
+  const historicalStateTerms = uniqueTerms((historicalMemory.state_changes || []).flatMap((s: any) => [
+    s.entity,
+    s.field,
+    s.before,
+    s.after
+  ]));
+
   return (
     overlapCount(currentEntityTerms, historicalEntityTerms) * 3 +
     overlapCount(currentFactTerms, historicalFactTerms) * 2 +
-    overlapCount(currentThreadTerms, historicalThreadTerms)
+    overlapCount(currentEventTerms, historicalEventTerms) * 3 +
+    overlapCount(currentThreadTerms, historicalThreadTerms) * 1 +
+    overlapCount(currentStateTerms, historicalStateTerms) * 4
   );
 }
 

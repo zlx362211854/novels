@@ -4,7 +4,7 @@ import { architectureApi, chapterApi, multiChapterReviewApi } from '../services/
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, GitCompare, Plus, X } from 'lucide-react';
+import { ArrowLeft, ChevronRight, GitCompare, Plus, X } from 'lucide-react';
 
 function ChapterManager() {
   const { id } = useParams();
@@ -58,6 +58,17 @@ function ChapterManager() {
     ],
     [chapters]
   );
+
+  const nextChapterMap = useMemo(() => {
+    const sorted = [...chapters].sort(
+      (left, right) => (left.chapter_number || 0) - (right.chapter_number || 0)
+    );
+    const map = new Map();
+    sorted.forEach((chapter, index) => {
+      map.set(chapter.id, sorted[index + 1] || null);
+    });
+    return map;
+  }, [chapters]);
 
   const handleCreate = async (event) => {
     event.preventDefault();
@@ -221,6 +232,14 @@ function ChapterManager() {
                   </Link>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
+                  {nextChapterMap.get(chapter.id) ? (
+                    <Button variant="outline" size="sm" asChild>
+                      <Link to={`/chapters/${nextChapterMap.get(chapter.id).id}`}>
+                        下一章
+                        <ChevronRight className="ml-1.5 h-4 w-4" />
+                      </Link>
+                    </Button>
+                  ) : null}
                   <span className={`rounded-full px-3 py-1 text-xs font-semibold ${chapter.status === 'generated' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
                     }`}>
                     {chapter.status === 'generated' ? '已生成' : '草稿'}

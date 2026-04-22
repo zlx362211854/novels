@@ -3,6 +3,7 @@ import { HumanMessage } from '@langchain/core/messages';
 import { createLLM } from '../llmFactory';
 import { parseJson } from '../jsonUtils';
 import { invokeWithStreaming } from '../streaming';
+import * as aiStatus from '../../services/aiStatusService';
 
 const MemoryExtractionState = Annotation.Root({
   // Inputs
@@ -11,6 +12,7 @@ const MemoryExtractionState = Annotation.Root({
   architecture: Annotation<any>,
   signal: Annotation<AbortSignal | undefined>,
   skipRepairOnParseFailure: Annotation<boolean>,
+  taskId: Annotation<string | null>,
 
   // Intermediate
   rawResponse: Annotation<string>,
@@ -49,6 +51,13 @@ ${chapter.content || ''}
 请返回 JSON，结构必须完全符合：
 {
   "summary": "string",
+  "key_events": [
+    {
+      "event": "string",
+      "characters": ["string"],
+      "time": "string"
+    }
+  ],
   "entities": {
     "characters": ["string"],
     "locations": ["string"],
@@ -90,12 +99,13 @@ ${chapter.content || ''}
 }
 
 要求：
-1. evidence 和 excerpt 必须来自正文的短原句，不要改写过度
-2. 没有的字段返回空数组，不要省略
-3. 只保留和硬逻辑相关的信息
-4. 输出必须是合法 JSON，不要加 markdown 代码块
-5. 所有字符串必须使用英文半角双引号 "
-6. summary、evidence、excerpt、thread 尽量简短，避免冗长`;
+1. key_events 是本章核心事件列表（2-6条），每条用10字以内描述一件事，characters 列出直接涉及的人名，time 填时间线标注（如"入夜"、"次日"、"同时"，无明确时间可留空""）
+2. evidence 和 excerpt 必须来自正文的短原句，不要改写过度
+3. 没有的字段返回空数组，不要省略
+4. 只保留和硬逻辑相关的信息
+5. 输出必须是合法 JSON，不要加 markdown 代码块
+6. 所有字符串必须使用英文半角双引号 "
+7. summary、evidence、excerpt、thread 尽量简短，避免冗长`;
 }
 
 function buildRepairPrompt(rawResult: string): string {
@@ -108,6 +118,7 @@ function buildRepairPrompt(rawResult: string): string {
 4. 结构必须保持为章节记忆卡：
 {
   "summary": "",
+  "key_events": [],
   "entities": {
     "characters": [],
     "locations": [],
@@ -126,14 +137,14 @@ ${rawResult}`;
 
 // Node: call LLM to extract memory
 async function callLLMNode(state: typeof MemoryExtractionState.State) {
-  const llm = await createLLM({ temperature: 0.2 });
+  const llm = await createLLM({ temperature: 0.2, maxTokens: 12000, provider: 'minimax' });
   const prompt = buildMemoryPrompt(state.chapter, state.novel, state.architecture);
 
   console.log('[AI] 开始调用 LLM (chapter-memory)');
   const rawResponse = await invokeWithStreaming(
     llm,
     [new HumanMessage(prompt)],
-    { signal: state.signal, resetStream: true }
+    { signal: state.signal, taskId: state.taskId, resetStream: true }
   );
   console.log('[AI] LLM (chapter-memory) 返回完成');
 
@@ -148,6 +159,9 @@ async function parseResponseNode(state: typeof MemoryExtractionState.State) {
   } catch (error: any) {
     console.error('解析记忆卡失败:', error.message);
     console.error('原始记忆卡输出片段:', (state.rawResponse || '').slice(0, 800));
+    if (state.taskId) {
+      aiStatus.step(state.taskId, 1, '修复记忆卡结果');
+    }
     return { parseSucceeded: false, parseError: error.message };
   }
 }
@@ -159,7 +173,7 @@ async function repairJsonNode(state: typeof MemoryExtractionState.State) {
   const repaired = await invokeWithStreaming(
     llm,
     [new HumanMessage(buildRepairPrompt(state.rawResponse))],
-    { signal: state.signal, resetStream: true }
+    { signal: state.signal, taskId: state.taskId, resetStream: true }
   );
 
   try {
@@ -177,6 +191,7 @@ async function normalizeNode(state: typeof MemoryExtractionState.State) {
   return {
     memoryCard: {
       summary: mc.summary || '',
+      key_events: Array.isArray(mc.key_events) ? mc.key_events : [],
       entities: {
         characters: Array.isArray(mc.entities?.characters) ? mc.entities.characters : [],
         locations: Array.isArray(mc.entities?.locations) ? mc.entities.locations : [],
