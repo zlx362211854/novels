@@ -1,6 +1,18 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage } from '@langchain/core/messages';
 
+export function strictJsonOutputRules(options: { allowExtraText?: boolean } = {}): string {
+  const rules = [
+    '输出必须是合法 JSON，不要加 markdown 代码块。',
+    'JSON 的 key 和字符串边界必须使用英文半角双引号 "。',
+    '字符串内容里引用原文、称谓、短语时，禁止直接使用未转义的英文双引号；请改用中文引号“”或把英文双引号写成 \\"。',
+  ];
+  if (!options.allowExtraText) {
+    rules.push('不要输出 JSON 之外的解释文字。');
+  }
+  return rules.join('\n');
+}
+
 export function stripCodeFences(content: string): string {
   let result = content
     .replace(/<think>[\s\S]*?<\/think>/gi, '')

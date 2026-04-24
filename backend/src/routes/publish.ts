@@ -4,6 +4,15 @@ import * as publishService from '../services/publishService';
 
 const router = Router();
 
+router.get('/platforms', async (_req: Request, res: Response) => {
+  try {
+    const platforms = await publishService.getAvailablePlatforms();
+    res.json(platforms);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 router.post('/:chapterId', async (req: Request, res: Response) => {
   const ac = new AbortController();
   setMaxListeners(30, ac.signal);

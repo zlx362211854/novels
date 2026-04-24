@@ -1,7 +1,7 @@
 import { Novel, Architecture } from '../models/sequelize';
 import { HumanMessage } from '@langchain/core/messages';
 import { createLLM } from '../ai/llmFactory';
-import { parseJson } from '../ai/jsonUtils';
+import { parseJsonWithRepair, strictJsonOutputRules } from '../ai/jsonUtils';
 import { invokeWithStreaming } from '../ai/streaming';
 
 function buildReviewPrompt(novel: any, architectures: any[]): string {
@@ -23,7 +23,8 @@ ${a.world_setting || ''}`).join('\n\n')}
 3. 世界观是否一致
 4. 节奏安排是否恰当
 
-请以JSON格式返回审阅结果。`;
+请以JSON格式返回审阅结果。
+${strictJsonOutputRules()}`;
 }
 
 function buildFullArchRewritePrompt(novel: any, fullArch: any, volumes: any[], reviewResult: any, userPrompt: string): string {
@@ -44,7 +45,18 @@ ${userPrompt || '请根据审阅意见优化架构'}
 ## 要求
 请生成优化后的全本架构，确保逻辑清晰、情节连贯。
 
-请以JSON格式返回结果。`;
+请以JSON格式返回结果。
+${strictJsonOutputRules()}`;
+}
+
+function buildRepairPrompt(raw: string): string {
+  return `请把以下文本修复成合法 JSON。
+要求：
+${strictJsonOutputRules()}
+保持原有语义，不要添加新结论。
+
+待修复文本：
+${raw}`;
 }
 
 async function reviewArchitectures(novelId: number, signal?: AbortSignal): Promise<any> {
@@ -57,14 +69,10 @@ async function reviewArchitectures(novelId: number, signal?: AbortSignal): Promi
   });
 
   const prompt = buildReviewPrompt(novel, architectures);
-  const llm = await createLLM({ temperature: 0.7 });
+  const llm = await createLLM({ temperature: 0.7, provider: 'deepseek' });
   const content = await invokeWithStreaming(llm, [new HumanMessage(prompt)], { signal, resetStream: true });
 
-  try {
-    return parseJson(content);
-  } catch {
-    return { raw: content };
-  }
+  return parseJsonWithRepair(content, llm, buildRepairPrompt);
 }
 
 async function rewriteArchitectures(novelId: number, reviewResult: any, userPrompt: string, signal?: AbortSignal): Promise<any> {
@@ -77,14 +85,10 @@ async function rewriteArchitectures(novelId: number, reviewResult: any, userProm
   const volumes = await Architecture.findAll({ where: { novel_id: novelId, level: 'volume' } });
 
   const prompt = buildFullArchRewritePrompt(novel, fullArch, volumes, reviewResult, userPrompt);
-  const llm = await createLLM({ temperature: 0.7 });
+  const llm = await createLLM({ temperature: 0.7, provider: 'deepseek' });
   const content = await invokeWithStreaming(llm, [new HumanMessage(prompt)], { signal, resetStream: true });
 
-  try {
-    return parseJson(content);
-  } catch {
-    return { raw: content };
-  }
+  return parseJsonWithRepair(content, llm, buildRepairPrompt);
 }
 
 export {

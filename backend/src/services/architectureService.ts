@@ -1,4 +1,5 @@
-import { Architecture, Chapter } from '../models/sequelize';
+import { Op } from 'sequelize';
+import { Architecture, Chapter, sequelize } from '../models/sequelize';
 
 interface CreateArchitectureData {
   novelId: number;
@@ -89,6 +90,93 @@ async function deleteArchitecture(id: number | string): Promise<boolean> {
   return true;
 }
 
+async function withSqliteBusyRetry<T>(operation: () => Promise<T>, attempts = 6): Promise<T> {
+  let lastError: any;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      const message = `${error?.message || ''} ${error?.parent?.message || ''}`;
+      if (!message.includes('SQLITE_BUSY') || attempt === attempts) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+    }
+  }
+  throw lastError;
+}
+
+async function renumberChaptersForNovel(novelId: number | string, transaction?: any): Promise<void> {
+  let nextChapterNumber = 1;
+  const volumes = await Architecture.findAll({
+    where: { novel_id: novelId, level: 'volume' },
+    order: [['id', 'ASC']],
+    transaction
+  });
+
+  for (const volume of volumes) {
+    const chapterArchs = await Architecture.findAll({
+      where: { parent_id: volume.id, level: 'chapter' },
+      order: [['id', 'ASC']],
+      transaction
+    });
+
+    const chapterArchIds = chapterArchs.map((chapterArch: any) => chapterArch.id);
+    const chaptersByArchId = new Map<number, any[]>();
+    if (chapterArchIds.length) {
+      const linkedChapters = await Chapter.findAll({
+        where: { architecture_id: { [Op.in]: chapterArchIds } },
+        order: [['architecture_id', 'ASC'], ['id', 'ASC']],
+        transaction
+      });
+
+      linkedChapters.forEach((chapter: any) => {
+        const archId = chapter.architecture_id;
+        const list = chaptersByArchId.get(archId) || [];
+        list.push(chapter);
+        chaptersByArchId.set(archId, list);
+      });
+    }
+
+    for (const chapterArch of chapterArchs) {
+      const chapters = chaptersByArchId.get(chapterArch.id) || [];
+      for (const chapter of chapters) {
+        if (chapter.chapter_number !== nextChapterNumber) {
+          await Chapter.update(
+            { chapter_number: nextChapterNumber },
+            { where: { id: chapter.id }, transaction }
+          );
+        }
+      }
+
+      if (chapters.length > 0) {
+        nextChapterNumber += 1;
+      }
+    }
+  }
+
+  const orphanChapters = await Chapter.findAll({
+    where: { novel_id: novelId, architecture_id: null },
+    order: [['chapter_number', 'ASC'], ['id', 'ASC']],
+    transaction
+  });
+
+  for (const chapter of orphanChapters) {
+    if (chapter.chapter_number !== nextChapterNumber) {
+      await Chapter.update(
+        { chapter_number: nextChapterNumber },
+        { where: { id: chapter.id }, transaction }
+      );
+    }
+    nextChapterNumber += 1;
+  }
+}
+
+async function renumberNovelChapters(novelId: number | string): Promise<void> {
+  await withSqliteBusyRetry(() => renumberChaptersForNovel(novelId), 8);
+}
+
 async function replaceChapterArchitectures(novelId: number | string, volumeId: number | string | null, chapters: any[]): Promise<any[]> {
   const where: any = {
     novel_id: novelId,
@@ -147,4 +235,4 @@ function parseJsonFields(row: any): any {
   };
 }
 
-export { create, findByNovelId, findByParentId, findById, update, deleteArchitecture as delete, replaceChapterArchitectures };
+export { create, findByNovelId, findByParentId, findById, update, deleteArchitecture as delete, replaceChapterArchitectures, renumberNovelChapters };

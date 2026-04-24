@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { chapterApi, architectureApi } from '../services/api';
 import PublishDialog from '../components/PublishDialog';
+import ChapterDiffView from '../components/ChapterDiffView';
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import { MarkdownEditor } from '../components/ui/MarkdownEditor';
 import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
@@ -15,7 +16,9 @@ import { Alert, AlertTitle, AlertDescription } from '../components/ui/alert';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
 import { Card, CardContent } from '../components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { cn } from '@/lib/utils';
+import { buildNextChapterDraft, summarizeMemory, summarizeReview } from '@/lib/chapterWorkspace';
 import {
   ArrowLeft,
   Copy,
@@ -33,6 +36,7 @@ import {
   BookOpen,
   ChevronRight,
   Brain,
+  Clock3,
 } from 'lucide-react';
 
 function statusVariant(status) {
@@ -63,6 +67,7 @@ function issueTypeLabel(type) {
 
 function ChapterDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const feedback = useFeedback();
   const [chapter, setChapter] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -73,9 +78,10 @@ function ChapterDetail() {
   const [generating, setGenerating] = useState(false);
   const [review, setReview] = useState(null);
   const [versions, setVersions] = useState([]);
-  const [regenerating, setRegenerating] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [revising, setRevising] = useState(false);
+  const [tuning, setTuning] = useState(false);
+  const [tuneDraft, setTuneDraft] = useState(null);
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [architecture, setArchitecture] = useState(null);
   const [editingArchitecture, setEditingArchitecture] = useState(false);
@@ -87,7 +93,10 @@ function ChapterDetail() {
   const [savingMemory, setSavingMemory] = useState(false);
   const [regeneratingMemory, setRegeneratingMemory] = useState(false);
   const [reviseIdea, setReviseIdea] = useState('');
+  const [generatePrompt, setGeneratePrompt] = useState('');
+  const [tunePrompt, setTunePrompt] = useState('');
   const [nextChapter, setNextChapter] = useState(null);
+  const [generatingNextChapter, setGeneratingNextChapter] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -173,6 +182,9 @@ function ChapterDetail() {
     [chapter, editContent, mode, versions.length]
   );
 
+  const memorySummary = useMemo(() => summarizeMemory(memory), [memory]);
+  const reviewSummary = useMemo(() => summarizeReview(review), [review]);
+
   const refreshVersions = async () => {
     const versionRes = await chapterApi.getVersions(id);
     setVersions(versionRes.data);
@@ -237,11 +249,12 @@ function ChapterDetail() {
     setGenerating(true);
     setReview(null);
     try {
-      const res = await chapterApi.generate(id);
+      const res = await chapterApi.generate(id, generatePrompt);
       setChapter(res.data.chapter);
       setEditContent(res.data.chapter.content || '');
       setEditTitle(res.data.chapter.title || '');
       setReview(res.data.review);
+      setGeneratePrompt('');
       await refreshVersions();
       setMode('edit');
       feedback.success('AI 已生成新正文草稿，请检查后保存。');
@@ -253,34 +266,47 @@ function ChapterDetail() {
     }
   };
 
-  const handleRegenerate = async () => {
+  const handleGenerateNextChapter = async () => {
+    if (!chapter?.novel_id) {
+      feedback.warning('当前章节缺少小说信息，无法创建下一章。');
+      return;
+    }
+
     const confirmed = await feedback.confirm({
-      title: '按架构重新生成正文？',
-      message: '系统会基于当前关联架构重新生成正文，并覆盖章节当前内容。',
-      note: chapter?.architecture_id
-        ? '如果想保留当前版本，建议先保存或确认历史版本中有可回退记录。'
-        : '当前章节没有关联架构。',
-      confirmText: '重新生成',
-      cancelText: '取消',
-      variant: 'danger',
+      title: '生成下一章？',
+      message: `系统会创建第 ${(chapter.chapter_number || 0) + 1} 章，并立即调用 AI 生成正文。`,
+      confirmText: '生成下一章',
+      cancelText: '先不生成',
     });
     if (!confirmed) return;
 
-    setRegenerating(true);
+    setGeneratingNextChapter(true);
     try {
-      const res = await chapterApi.generate(id);
-      setChapter(res.data.chapter);
-      setEditContent(res.data.chapter.content || '');
-      setEditTitle(res.data.chapter.title || '');
-      setReview(res.data.review || null);
-      await refreshVersions();
-      setMode('read');
-      feedback.success('章节已按架构重新生成。');
+      let nextArchitecture = null;
+      if (chapter.architecture_id && architecture?.parent_id) {
+        const archRes = await architectureApi.getByNovelId(chapter.novel_id);
+        const siblingArchs = archRes.data
+          .filter((arch) => arch.level === 'chapter' && arch.parent_id === architecture.parent_id)
+          .sort((left, right) => (left.id || 0) - (right.id || 0));
+        const currentArchIndex = siblingArchs.findIndex((arch) => arch.id === chapter.architecture_id);
+        nextArchitecture = currentArchIndex >= 0 ? siblingArchs[currentArchIndex + 1] || null : null;
+      }
+
+      const createRes = await chapterApi.create(
+        chapter.novel_id,
+        buildNextChapterDraft(chapter, nextArchitecture)
+      );
+      const createdChapter = createRes.data;
+      const generateRes = await chapterApi.generate(createdChapter.id);
+      const generatedChapter = generateRes.data?.chapter || createdChapter;
+      setNextChapter(generatedChapter);
+      feedback.success(`第 ${generatedChapter.chapter_number || createdChapter.chapter_number} 章已生成。`);
+      navigate(`/chapters/${generatedChapter.id || createdChapter.id}`);
     } catch (error) {
-      console.error('重新生成失败:', error);
-      feedback.error(error.response?.data?.error || '重新生成失败，请稍后再试。');
+      console.error('生成下一章失败:', error);
+      feedback.error(error.response?.data?.error || '生成下一章失败，请稍后再试。');
     } finally {
-      setRegenerating(false);
+      setGeneratingNextChapter(false);
     }
   };
 
@@ -332,6 +358,52 @@ function ChapterDetail() {
     } finally {
       setRevising(false);
     }
+  };
+
+  const handleTune = async () => {
+    if (!chapter?.content) {
+      feedback.warning('当前还没有可微调的正文。');
+      return;
+    }
+    if (!tunePrompt.trim()) {
+      feedback.warning('请先填写微调要求。');
+      return;
+    }
+
+    setTuning(true);
+    try {
+      const res = await chapterApi.tune(id, tunePrompt);
+      setTuneDraft(res.data);
+      setTunePrompt('');
+      feedback.success('微调草稿已生成，请先查看差异。');
+    } catch (error) {
+      console.error('章节微调失败:', error);
+      feedback.error(error.response?.data?.error || '章节微调失败，请稍后再试。');
+    } finally {
+      setTuning(false);
+    }
+  };
+
+  const handleApplyTuneDraft = () => {
+    if (!tuneDraft) return;
+    setEditContent(tuneDraft.revisedContent || '');
+    setEditTitle(chapter.title || '');
+    setReview(null);
+    setMode('edit');
+    setTuneDraft(null);
+    feedback.success('微调稿已放入编辑区。确认无误后，请点击保存。');
+  };
+
+  const handleDiscardTuneDraft = async () => {
+    const confirmed = await feedback.confirm({
+      title: '丢弃微调草稿？',
+      message: '丢弃后不会修改当前章节正文，也不会影响历史版本。',
+      confirmText: '丢弃草稿',
+      cancelText: '继续查看',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    setTuneDraft(null);
   };
 
   const handleRestore = async (versionNumber) => {
@@ -517,611 +589,632 @@ function ChapterDetail() {
                   <ChevronRight className="ml-1.5 size-4" />
                 </Link>
               </Button>
-            ) : null}
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleGenerateNextChapter}
+                disabled={generatingNextChapter}
+              >
+                <Sparkles className="mr-1.5 size-4" />
+                {generatingNextChapter ? '生成中...' : '生成下一章'}
+              </Button>
+            )}
           </div>
         }
       >
         <StatGrid items={stats} />
 
-        {architecture && (
-          <SectionCard
-            title="本章架构"
-            description="生成正文时所参考的章节架构信息，包括情节概要与人物设定。"
-            actions={
-              editingArchitecture ? (
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={handleCancelArchitectureEdit}>
-                    <X className="size-4" />
-                    取消
+        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
+          <div className="space-y-6">
+            <SectionCard
+              title="AI 助手"
+              description="生成、审阅、重写和微调集中在这里，正文仍然由下方工作区确认。"
+            >
+              <div className="space-y-4">
+                <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Label htmlFor="generate-prompt" className="text-sm font-semibold text-slate-800">
+                        生成正文要求
+                      </Label>
+                      <Textarea
+                        id="generate-prompt"
+                        value={generatePrompt}
+                        onChange={(event) => setGeneratePrompt(event.target.value)}
+                        rows={3}
+                        className="bg-white"
+                        placeholder="可选：例如承接上一章紧张气氛；重点写主角犹豫后下定决心；不要提前揭露幕后人。"
+                        disabled={generating}
+                      />
+                    </div>
+                    <Button onClick={handleGenerate} disabled={generating} className="lg:mb-0.5">
+                      <Sparkles className="size-4" />
+                      {generating ? '生成中...' : '生成正文'}
+                    </Button>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    生成正文会覆盖当前章节内容；填写要求后会随本章架构一起发给 AI。
+                  </p>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-1">
+                  <Button variant="outline" onClick={handleReview} disabled={reviewing || !chapter?.content}>
+                    <AlertTriangle className="size-4" />
+                    {reviewing ? '审阅中...' : '重新审阅'}
                   </Button>
-                  <Button size="sm" onClick={handleSaveArchitecture} disabled={savingArchitecture}>
-                    <Save className="size-4" />
-                    {savingArchitecture ? '保存中...' : '保存概要'}
+                </div>
+
+                <div className="rounded-lg border border-sky-200 bg-sky-50/70 p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Label htmlFor="tune-prompt" className="text-sm font-semibold text-slate-800">
+                        局部微调要求
+                      </Label>
+                      <Textarea
+                        id="tune-prompt"
+                        value={tunePrompt}
+                        onChange={(event) => setTunePrompt(event.target.value)}
+                        rows={3}
+                        className="bg-white"
+                        placeholder="例如：加强结尾悬念；把对话写得更含蓄；减少现代口语。"
+                        disabled={tuning}
+                      />
+                    </div>
+                    <Button
+                      onClick={handleTune}
+                      disabled={tuning || !chapter?.content || !tunePrompt.trim()}
+                      className="lg:mb-0.5"
+                    >
+                      <Sparkles className="size-4" />
+                      {tuning ? '微调中...' : '生成微调草稿'}
+                    </Button>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    微调会先生成 diff 草稿；应用到编辑区后，还需要保存。
+                  </p>
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              title={tuneDraft ? '微调草稿' : mode === 'edit' ? '精修工作区' : '阅读视图'}
+              description={
+                tuneDraft
+                  ? '先看差异，再决定是否放入编辑区。'
+                  : mode === 'edit'
+                    ? '正文编辑区已固定高度，长章节也可以稳定滚动。'
+                    : '正文现在是主工作区，周边信息收进右侧上下文。'
+              }
+              actions={
+                mode === 'edit' && !tuneDraft ? (
+                  <>
+                    <Button variant="outline" onClick={handleCancel}>
+                      <X className="size-4" />
+                      取消编辑
+                    </Button>
+                    <Button variant="outline" onClick={() => handleSave({ regenerateMemory: false })} disabled={saving}>
+                      <Save className="size-4" />
+                      {saving ? '保存中...' : '保存'}
+                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <Button onClick={() => handleSave({ regenerateMemory: true })} disabled={saving}>
+                            <Save className="size-4" />
+                            {saving ? '保存中...' : '保存并更新记忆'}
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>保存章节并重新生成记忆卡</TooltipContent>
+                    </Tooltip>
+                  </>
+                ) : !tuneDraft ? (
+                  <Button variant="outline" onClick={() => setMode('edit')}>
+                    <Edit3 className="size-4" />
+                    开始润色
                   </Button>
+                ) : null
+              }
+            >
+              {tuneDraft ? (
+                <ChapterDiffView
+                  originalContent={tuneDraft.originalContent || chapter.content || ''}
+                  revisedContent={tuneDraft.revisedContent || ''}
+                  summary={tuneDraft.summary || '微调草稿待确认：应用到编辑区后，再用右上角保存按钮真正写入数据库。'}
+                  chapterNumber={tuneDraft.chapterNumber || chapter.chapter_number}
+                  title={tuneDraft.chapterTitle || chapter.title}
+                  onAccept={handleApplyTuneDraft}
+                  onSkip={handleDiscardTuneDraft}
+                  acceptLabel="应用到编辑区"
+                  skipLabel="丢弃草稿"
+                  variant="unified"
+                  isLast
+                  currentIndex={0}
+                  totalCount={1}
+                />
+              ) : mode === 'edit' ? (
+                <div className="flex min-h-[680px] flex-col gap-3">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>章节标题</Label>
+                      {hasUnsavedChanges && (
+                        <Badge variant="secondary" className="text-xs">
+                          未保存
+                        </Badge>
+                      )}
+                    </div>
+                    <Input
+                      value={editTitle}
+                      onChange={(event) => setEditTitle(event.target.value)}
+                      placeholder="输入章节标题"
+                      className="text-lg font-semibold"
+                    />
+                  </div>
+                  <div className="flex min-h-0 flex-1 flex-col space-y-2">
+                    <Label>正文内容</Label>
+                    <div className="min-h-0 flex-1 overflow-hidden rounded-md border border-slate-200">
+                      <MarkdownEditor
+                        value={editContent}
+                        onChange={setEditContent}
+                        placeholder="在这里撰写章节内容，支持 Markdown。"
+                      />
+                    </div>
+                  </div>
                 </div>
               ) : (
-                <Button size="sm" variant="outline" onClick={handleEditArchitecture}>
-                  <Edit3 className="size-4" />
-                  编辑概要
-                </Button>
-              )
-            }
-          >
-            <div className="space-y-4">
-              {(architecture.plot_outline || editingArchitecture) && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
-                    <BookOpen className="size-4 text-slate-500" />
-                    情节概要
-                  </div>
-                  {editingArchitecture ? (
-                    <Textarea
-                      value={architecturePlotOutline}
-                      onChange={(event) => setArchitecturePlotOutline(event.target.value)}
-                      rows={10}
-                      className="text-sm leading-7"
-                      placeholder="输入本章架构的情节概要..."
-                    />
-                  ) : (
-                    <p className="text-sm leading-7 text-slate-600 whitespace-pre-wrap">
-                      {architecture.plot_outline}
-                    </p>
-                  )}
-                </div>
-              )}
-              {(() => {
-                let chars = null;
-                try { chars = typeof architecture.characters === 'string' ? JSON.parse(architecture.characters) : architecture.characters; } catch { /* ignore */ }
-                if (!chars || (typeof chars === 'object' && !Array.isArray(chars) && Object.keys(chars).length === 0)) return null;
-                const list = Array.isArray(chars) ? chars : Object.values(chars);
-                if (!list.length) return null;
-                return (
-                  <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                    <p className="mb-3 text-sm font-semibold text-slate-700">本章人物</p>
-                    <div className="flex flex-wrap gap-2">
-                      {list.map((c, i) => (
-                        <Badge key={i} variant="outline" className="text-xs">
-                          {typeof c === 'string' ? c : (c.name || JSON.stringify(c))}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          </SectionCard>
-        )}
-
-        {/* 记忆卡 */}
-        <SectionCard
-          title="记忆卡"
-          description="AI 从本章正文提取的结构化信息，用于跨章节逻辑审核。可手动修正或重新提取。"
-          actions={
-            memoryMode === 'read' ? (
-              <div className="flex gap-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="outline" size="sm" onClick={handleRegenerateMemory} disabled={regeneratingMemory}>
-                      <RefreshCw className="size-4" />
-                      {regeneratingMemory ? '提取中...' : memory ? '重新提取' : '生成记忆卡'}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{memory ? 'AI 重新读取正文提取记忆卡' : '为当前章节生成结构化记忆卡'}</TooltipContent>
-                </Tooltip>
-                {memory ? (
-                  <Button size="sm" onClick={handleEditMemory}>
-                    <Edit3 className="size-4" />
-                    编辑
-                  </Button>
-                ) : null}
-              </div>
-            ) : memory && memoryMode === 'edit' ? (
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={handleCancelMemory}>
-                  <X className="size-4" />取消
-                </Button>
-                <Button size="sm" onClick={handleSaveMemory} disabled={savingMemory}>
-                  <Save className="size-4" />
-                  {savingMemory ? '保存中...' : '保存'}
-                </Button>
-              </div>
-            ) : null
-          }
-        >
-          {!memory ? (
-            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-              <Brain className="mx-auto mb-2 size-8 text-slate-400" />
-              还没有记忆卡。生成或保存章节正文后会自动提取。
-            </div>
-          ) : memoryMode === 'read' ? (
-            <div className="space-y-3">
-              {memory.key_events?.length > 0 && (
-                <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-4">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-indigo-600">本章关键事件</p>
-                  <div className="space-y-2">
-                    {memory.key_events.map((e, i) => (
-                      <div key={i} className="flex items-start gap-3 text-sm">
-                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-600">{i + 1}</span>
-                        <div className="min-w-0 flex-1">
-                          <span className="font-medium text-slate-800">{e.event}</span>
-                          {e.characters?.length > 0 && (
-                            <span className="ml-2 text-slate-500">
-                              {e.characters.join('、')}
-                            </span>
-                          )}
-                          {e.time && (
-                            <Badge variant="outline" className="ml-2 text-xs text-slate-400">{e.time}</Badge>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {memory.summary && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-slate-500">概要</p>
-                  <p className="text-sm leading-7 text-slate-700">{memory.summary}</p>
-                </div>
-              )}
-              <div className="grid gap-3 sm:grid-cols-2">
-                {['characters', 'locations', 'items', 'organizations'].map((key) => {
-                  const labels = { characters: '人物', locations: '地点', items: '物品', organizations: '组织' };
-                  const list = memory.entities?.[key] || [];
-                  if (!list.length) return null;
-                  return (
-                    <div key={key} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">{labels[key]}</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {list.map((item, i) => (
-                          <Badge key={i} variant="outline" className="text-xs">{item}</Badge>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {memory.state_changes?.length > 0 && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">状态变化</p>
-                  <div className="space-y-1">
-                    {memory.state_changes.map((s, i) => (
-                      <div key={i} className="flex items-center gap-2 text-sm text-slate-600">
-                        <Badge variant="outline" className="text-xs shrink-0">{s.entity}</Badge>
-                        <span className="text-slate-400">{s.from ?? '?'}</span>
-                        <ChevronRight className="size-3 text-slate-400 shrink-0" />
-                        <span className="text-slate-700 font-medium">{s.to ?? '?'}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {memory.facts?.length > 0 && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">事实</p>
-                  <div className="space-y-1">
-                    {memory.facts.map((f, i) => (
-                      <p key={i} className="text-sm text-slate-600">
-                        <span className="font-medium text-slate-800">{f.subject}</span>
-                        {' '}{f.predicate}{' '}
-                        <span className="text-slate-700">{f.object}</span>
-                      </p>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {memory.open_threads?.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-amber-600">未解悬念</p>
-                  <div className="space-y-1">
-                    {memory.open_threads.map((t, i) => (
-                      <p key={i} className="text-sm text-amber-800">{t.thread ?? t}</p>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            /* 编辑模式 */
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">概要</Label>
-                <Textarea
-                  value={editMemory.summary}
-                  onChange={(e) => setEditMemory({ ...editMemory, summary: e.target.value })}
-                  rows={3}
-                  className="text-sm"
-                />
-              </div>
-              {['characters', 'locations', 'items', 'organizations'].map((key) => {
-                const labels = { characters: '人物', locations: '地点', items: '物品', organizations: '组织' };
-                return (
-                  <div key={key} className="space-y-2">
-                    <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">{labels[key]}（逗号分隔）</Label>
-                    <Input
-                      value={(editMemory.entities?.[key] || []).join('、')}
-                      onChange={(e) => setEditMemory({
-                        ...editMemory,
-                        entities: {
-                          ...editMemory.entities,
-                          [key]: e.target.value.split(/[,，、]/).map(s => s.trim()).filter(Boolean),
-                        },
-                      })}
-                      className="text-sm"
-                    />
-                  </div>
-                );
-              })}
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">状态变化（JSON 数组）</Label>
-                <Textarea
-                  value={JSON.stringify(editMemory.state_changes || [], null, 2)}
-                  onChange={(e) => {
-                    try { setEditMemory({ ...editMemory, state_changes: JSON.parse(e.target.value) }); } catch { /* ignore invalid JSON */ }
-                  }}
-                  rows={4}
-                  className="font-mono text-xs"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">事实（JSON 数组）</Label>
-                <Textarea
-                  value={JSON.stringify(editMemory.facts || [], null, 2)}
-                  onChange={(e) => {
-                    try { setEditMemory({ ...editMemory, facts: JSON.parse(e.target.value) }); } catch { /* ignore invalid JSON */ }
-                  }}
-                  rows={6}
-                  className="font-mono text-xs"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">未解悬念（JSON 数组）</Label>
-                <Textarea
-                  value={JSON.stringify(editMemory.open_threads || [], null, 2)}
-                  onChange={(e) => {
-                    try { setEditMemory({ ...editMemory, open_threads: JSON.parse(e.target.value) }); } catch { /* ignore invalid JSON */ }
-                  }}
-                  rows={3}
-                  className="font-mono text-xs"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">关键事件（JSON 数组）</Label>
-                <Textarea
-                  value={JSON.stringify(editMemory.key_events || [], null, 2)}
-                  onChange={(e) => {
-                    try { setEditMemory({ ...editMemory, key_events: JSON.parse(e.target.value) }); } catch { /* ignore invalid JSON */ }
-                  }}
-                  rows={5}
-                  className="font-mono text-xs"
-                  placeholder='[{"event": "林霄发现玄铁佩", "characters": ["林霄"], "time": "入夜"}]'
-                />
-              </div>
-            </div>
-          )}
-        </SectionCard>
-
-        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-          <SectionCard
-            title="生成与回看"
-            description="先决定要不要重新出稿，再进入精修，避免边写边犹豫。"
-          >
-            <div className="space-y-4">
-              <Card className="border-slate-200 bg-slate-50/70">
-                <CardContent className="p-4">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-slate-800">AI 生成草稿</p>
-                      <div className="flex items-center gap-2">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="outline"
-                              onClick={handleReview}
-                              disabled={reviewing || !chapter?.content}
-                              size="sm"
-                            >
-                              <AlertTriangle className="mr-1.5 size-4" />
-                              {reviewing ? '审阅中...' : '重新审阅'}
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>基于历史章节和证据重新检查硬逻辑冲突</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              onClick={handleGenerate}
-                              disabled={generating}
-                              size="sm"
-                            >
-                              <Sparkles className="mr-1.5 size-4" />
-                              {generating ? '生成中...' : '生成'}
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>生成章节正文</TooltipContent>
-                        </Tooltip>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {chapter.architecture_id ? (
-                <Alert className="border-amber-200 bg-amber-50/70">
-                  <AlertTriangle className="size-4 text-amber-600" />
-                  <AlertTitle className="text-amber-900">按架构重新生成</AlertTitle>
-                  <AlertDescription className="text-amber-800/80">
-                    当前章节已绑定架构，可以直接按结构重新出稿，更适合大幅跑偏后的回正。
-                  </AlertDescription>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRegenerate}
-                    disabled={regenerating}
-                    className="mt-3 border-amber-300 bg-amber-100 hover:bg-amber-200 text-amber-900"
-                  >
-                    <RefreshCw className="size-4" />
-                    {regenerating ? '重新生成中...' : '按架构重新生成'}
-                  </Button>
-                </Alert>
-              ) : null}
-
-              {review ? (
-                <Alert
-                  className={cn(
-                    review.score >= 70
-                      ? 'border-emerald-200 bg-emerald-50/70'
-                      : 'border-amber-200 bg-amber-50/70'
-                  )}
-                >
-                  {review.score >= 70 ? (
-                    <CheckCircle className="size-4 text-emerald-600" />
-                  ) : (
-                    <AlertTriangle className="size-4 text-amber-600" />
-                  )}
-                  <AlertTitle className="flex items-center justify-between">
-                    <span>AI 审核报告</span>
-                    <div className="flex items-center gap-2">
-                      {(review.issues?.length || review.notes?.length) ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleRevise}
-                          disabled={revising}
-                        >
-                          <FileText className="mr-1.5 size-4" />
-                          {revising ? '处理中...' : '按审核结果重新生成正文'}
-                        </Button>
-                      ) : null}
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className="text-xs">
+                      <FileText className="mr-1 size-3" />
+                      第 {chapter.chapter_number} 章
+                    </Badge>
+                    <Badge variant={statusVariant(chapter.status)}>{statusLabel(chapter.status)}</Badge>
+                    {reviewSummary.hasReview ? (
                       <Badge
-                        variant={review.score >= 70 ? 'default' : 'secondary'}
+                        variant="outline"
                         className={cn(
-                          review.score >= 70
-                            ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
-                            : 'bg-amber-100 text-amber-700 hover:bg-amber-100'
+                          reviewSummary.status === 'healthy'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : 'border-amber-200 bg-amber-50 text-amber-700'
                         )}
                       >
-                        评分 {review.score}
+                        {reviewSummary.issueCount > 0 ? `审核 ${reviewSummary.issueCount} 个问题` : '审核通过'}
                       </Badge>
-                    </div>
-                  </AlertTitle>
-                  <AlertDescription>
-                    {(review.issues?.length || review.notes?.length) ? (
-                      <div className="mt-3 rounded-lg border border-slate-200 bg-white/80 px-3 py-3">
-                        <Label htmlFor="revise-idea" className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
-                          你对这一章的补充想法
-                        </Label>
-                        <Textarea
-                          id="revise-idea"
-                          value={reviseIdea}
-                          onChange={(event) => setReviseIdea(event.target.value)}
-                          placeholder="例如：保留这一章压抑的氛围；不要大改前半段；把主角的动机写得更坚定一些。"
-                          className="mt-2 min-h-24 bg-white"
-                        />
-                      </div>
                     ) : null}
-                    {review.issues?.length ? (
-                      <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
-                        {review.issues.map((issue, index) => (
-                          <div
-                            key={`${issue.type}-${index}`}
-                            className="rounded-lg bg-white/80 px-3 py-2"
-                          >
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-semibold text-rose-600">{issueTypeLabel(issue.type)}</span>
-                              {issue.severity ? (
-                                <Badge variant="outline">{issue.severity}</Badge>
-                              ) : null}
-                              {issue.historicalChapterNumber ? (
-                                <Badge variant="outline">第 {issue.historicalChapterNumber} 章</Badge>
-                              ) : null}
+                    {hasUnsavedChanges && (
+                      <Badge variant="secondary" className="bg-amber-100 text-amber-700">
+                        有未保存修改
+                      </Badge>
+                    )}
+                  </div>
+                  <ScrollArea className="max-h-[760px] overflow-auto">
+                    <div className="prose prose-slate max-w-none pr-3 leading-7">
+                      <ReactMarkdown>
+                        {chapter.content || '*暂无内容，点击上方按钮开始生成或编辑正文。*'}
+                      </ReactMarkdown>
+                    </div>
+                  </ScrollArea>
+                </div>
+              )}
+            </SectionCard>
+          </div>
+
+          <aside className="space-y-4 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-hidden">
+            <Card className="border-border/70 bg-white shadow-sm">
+              <CardContent className="p-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                    <p className="text-xs text-slate-500">记忆卡</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-900">
+                      {memorySummary.hasMemory ? `${memorySummary.keyEventCount} 事件` : '未生成'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                    <p className="text-xs text-slate-500">审核</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-900">
+                      {reviewSummary.hasReview ? `${reviewSummary.issueCount} 问题` : '未审阅'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                    <p className="text-xs text-slate-500">实体</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-900">{memorySummary.entityCount}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                    <p className="text-xs text-slate-500">版本</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-900">{versions.length}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Tabs defaultValue="architecture" className="min-h-0 rounded-lg border border-border bg-white p-3 shadow-sm xl:max-h-[calc(100vh-18rem)]">
+              <TabsList className="grid h-auto w-full grid-cols-4">
+                <TabsTrigger value="architecture" className="px-2 text-xs">架构</TabsTrigger>
+                <TabsTrigger value="memory" className="px-2 text-xs">记忆</TabsTrigger>
+                <TabsTrigger value="review" className="px-2 text-xs">审核</TabsTrigger>
+                <TabsTrigger value="versions" className="px-2 text-xs">版本</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="architecture" className="mt-4">
+                {!architecture ? (
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                    暂无关联架构。
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">本章架构</p>
+                        <p className="text-xs text-slate-500">生成正文时的情节依据</p>
+                      </div>
+                      {editingArchitecture ? (
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={handleCancelArchitectureEdit}>
+                            <X className="size-4" />
+                          </Button>
+                          <Button size="sm" onClick={handleSaveArchitecture} disabled={savingArchitecture}>
+                            <Save className="size-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={handleEditArchitecture}>
+                          <Edit3 className="size-4" />
+                          编辑
+                        </Button>
+                      )}
+                    </div>
+                    {editingArchitecture ? (
+                      <Textarea
+                        value={architecturePlotOutline}
+                        onChange={(event) => setArchitecturePlotOutline(event.target.value)}
+                        rows={12}
+                        className="text-sm leading-7"
+                        placeholder="输入本章架构的情节概要..."
+                      />
+                    ) : (
+                      <div className="max-h-[min(420px,calc(100vh-28rem))] overflow-auto rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                          <BookOpen className="size-4 text-slate-500" />
+                          情节概要
+                        </div>
+                        <p className="whitespace-pre-wrap text-sm leading-7 text-slate-600">
+                          {architecture.plot_outline || '暂无情节概要。'}
+                        </p>
+                      </div>
+                    )}
+                    {(() => {
+                      let chars = null;
+                      try { chars = typeof architecture.characters === 'string' ? JSON.parse(architecture.characters) : architecture.characters; } catch { /* ignore */ }
+                      if (!chars || (typeof chars === 'object' && !Array.isArray(chars) && Object.keys(chars).length === 0)) return null;
+                      const list = Array.isArray(chars) ? chars : Object.values(chars);
+                      if (!list.length) return null;
+                      return (
+                        <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">本章人物</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {list.map((c, i) => (
+                              <Badge key={i} variant="outline" className="text-xs">
+                                {typeof c === 'string' ? c : (c.name || JSON.stringify(c))}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="memory" className="mt-4">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">记忆卡</p>
+                      <p className="text-xs text-slate-500">
+                        {memorySummary.hasMemory
+                          ? `${memorySummary.keyEventCount} 事件 / ${memorySummary.entityCount} 实体 / ${memorySummary.openThreadCount} 悬念`
+                          : '还没有结构化记忆'}
+                      </p>
+                    </div>
+                    {memoryMode === 'read' ? (
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={handleRegenerateMemory} disabled={regeneratingMemory}>
+                          <RefreshCw className="size-4" />
+                        </Button>
+                        {memory ? (
+                          <Button size="sm" onClick={handleEditMemory}>
+                            <Edit3 className="size-4" />
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={handleCancelMemory}>
+                          <X className="size-4" />
+                        </Button>
+                        <Button size="sm" onClick={handleSaveMemory} disabled={savingMemory}>
+                          <Save className="size-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {!memory ? (
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                      <Brain className="mx-auto mb-2 size-8 text-slate-400" />
+                      生成或保存章节正文后会自动提取。
+                    </div>
+                  ) : memoryMode === 'read' ? (
+                    <ScrollArea className="h-[min(620px,calc(100vh-24rem))] pr-3">
+                      <div className="space-y-3">
+                        {memory.key_events?.length > 0 && (
+                          <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-4">
+                            <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-indigo-600">关键事件</p>
+                            <div className="space-y-2">
+                              {memory.key_events.map((e, i) => (
+                                <div key={i} className="flex items-start gap-3 text-sm">
+                                  <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-600">{i + 1}</span>
+                                  <div className="min-w-0 flex-1">
+                                    <span className="font-medium text-slate-800">{e.event}</span>
+                                    {e.characters?.length > 0 && (
+                                      <span className="ml-2 text-slate-500">{e.characters.join('、')}</span>
+                                    )}
+                                    {e.time && (
+                                      <Badge variant="outline" className="ml-2 text-xs text-slate-400">{e.time}</Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                            <p className="mt-1">{issue.description}</p>
-                            {issue.currentEvidence ? (
-                              <div className="mt-2 rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-slate-700">
-                                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">
-                                  当前章证据
-                                </p>
-                                <p className="mt-1">{issue.currentEvidence}</p>
+                          </div>
+                        )}
+                        {memory.summary && (
+                          <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                            <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-slate-500">概要</p>
+                            <p className="text-sm leading-7 text-slate-700">{memory.summary}</p>
+                          </div>
+                        )}
+                        {['characters', 'locations', 'items', 'organizations'].map((key) => {
+                          const labels = { characters: '人物', locations: '地点', items: '物品', organizations: '组织' };
+                          const list = memory.entities?.[key] || [];
+                          if (!list.length) return null;
+                          return (
+                            <div key={key} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                              <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">{labels[key]}</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {list.map((item, i) => (
+                                  <Badge key={i} variant="outline" className="text-xs">{item}</Badge>
+                                ))}
                               </div>
-                            ) : null}
-                            {issue.historicalEvidence ? (
-                              <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-slate-700">
-                                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
-                                  历史章证据
+                            </div>
+                          );
+                        })}
+                        {memory.state_changes?.length > 0 && (
+                          <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">状态变化</p>
+                            <div className="space-y-1">
+                              {memory.state_changes.map((s, i) => (
+                                <div key={i} className="flex items-center gap-2 text-sm text-slate-600">
+                                  <Badge variant="outline" className="shrink-0 text-xs">{s.entity}</Badge>
+                                  <span className="text-slate-400">{s.from ?? '?'}</span>
+                                  <ChevronRight className="size-3 shrink-0 text-slate-400" />
+                                  <span className="font-medium text-slate-700">{s.to ?? '?'}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {memory.facts?.length > 0 && (
+                          <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">事实</p>
+                            <div className="space-y-1">
+                              {memory.facts.map((f, i) => (
+                                <p key={i} className="text-sm text-slate-600">
+                                  <span className="font-medium text-slate-800">{f.subject}</span>
+                                  {' '}{f.predicate}{' '}
+                                  <span className="text-slate-700">{f.object}</span>
                                 </p>
-                                <p className="mt-1">{issue.historicalEvidence}</p>
-                              </div>
-                            ) : null}
-                            {issue.suggestion ? (
-                              <p className="mt-1 text-slate-500">建议：{issue.suggestion}</p>
-                            ) : null}
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {memory.open_threads?.length > 0 && (
+                          <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4">
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-amber-600">未解悬念</p>
+                            <div className="space-y-1">
+                              {memory.open_threads.map((t, i) => (
+                                <p key={i} className="text-sm text-amber-800">{t.thread ?? t}</p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  ) : (
+                    <ScrollArea className="h-[min(620px,calc(100vh-24rem))] pr-3">
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">概要</Label>
+                          <Textarea
+                            value={editMemory.summary}
+                            onChange={(e) => setEditMemory({ ...editMemory, summary: e.target.value })}
+                            rows={3}
+                            className="text-sm"
+                          />
+                        </div>
+                        {['characters', 'locations', 'items', 'organizations'].map((key) => {
+                          const labels = { characters: '人物', locations: '地点', items: '物品', organizations: '组织' };
+                          return (
+                            <div key={key} className="space-y-2">
+                              <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">{labels[key]}（逗号分隔）</Label>
+                              <Input
+                                value={(editMemory.entities?.[key] || []).join('、')}
+                                onChange={(e) => setEditMemory({
+                                  ...editMemory,
+                                  entities: {
+                                    ...editMemory.entities,
+                                    [key]: e.target.value.split(/[,，、]/).map(s => s.trim()).filter(Boolean),
+                                  },
+                                })}
+                                className="text-sm"
+                              />
+                            </div>
+                          );
+                        })}
+                        {[
+                          ['state_changes', '状态变化（JSON 数组）', 4],
+                          ['facts', '事实（JSON 数组）', 6],
+                          ['open_threads', '未解悬念（JSON 数组）', 3],
+                          ['key_events', '关键事件（JSON 数组）', 5],
+                        ].map(([key, label, rows]) => (
+                          <div key={key} className="space-y-2">
+                            <Label className="text-xs font-semibold uppercase tracking-widest text-slate-500">{label}</Label>
+                            <Textarea
+                              value={JSON.stringify(editMemory[key] || [], null, 2)}
+                              onChange={(e) => {
+                                try { setEditMemory({ ...editMemory, [key]: JSON.parse(e.target.value) }); } catch { /* ignore invalid JSON */ }
+                              }}
+                              rows={rows}
+                              className="font-mono text-xs"
+                            />
                           </div>
                         ))}
                       </div>
-                    ) : (
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        这次生成没有发现明显问题，可以直接进入人工润色。
-                      </p>
-                    )}
-                    {review.notes?.length ? (
-                      <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-3 text-sm text-slate-600">
-                        <div className="flex items-center gap-2 font-medium text-slate-800">
-                          <Info className="size-4" />
-                          架构提示
+                    </ScrollArea>
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="review" className="mt-4">
+                {!review ? (
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                    <AlertTriangle className="mx-auto mb-2 size-8 text-slate-400" />
+                    暂无审核报告。
+                  </div>
+                ) : (
+                  <ScrollArea className="h-[min(660px,calc(100vh-24rem))] pr-3">
+                    <div className="space-y-4">
+                      <Alert
+                        className={cn(
+                          reviewSummary.status === 'healthy'
+                            ? 'border-emerald-200 bg-emerald-50/70'
+                            : 'border-amber-200 bg-amber-50/70'
+                        )}
+                      >
+                        {reviewSummary.status === 'healthy' ? (
+                          <CheckCircle className="size-4 text-emerald-600" />
+                        ) : (
+                          <AlertTriangle className="size-4 text-amber-600" />
+                        )}
+                        <AlertTitle className="flex items-center justify-between gap-3">
+                          <span>{reviewSummary.issueCount > 0 ? `发现 ${reviewSummary.issueCount} 个问题` : '未发现明显问题'}</span>
+                          {(review.issues?.length || review.notes?.length) ? (
+                            <Button variant="outline" size="sm" onClick={handleRevise} disabled={revising}>
+                              <FileText className="size-4" />
+                              {revising ? '处理中...' : '按报告修订'}
+                            </Button>
+                          ) : null}
+                        </AlertTitle>
+                      </Alert>
+                      {(review.issues?.length || review.notes?.length) ? (
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
+                          <Label htmlFor="revise-idea" className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
+                            补充修订想法
+                          </Label>
+                          <Textarea
+                            id="revise-idea"
+                            value={reviseIdea}
+                            onChange={(event) => setReviseIdea(event.target.value)}
+                            placeholder="例如：保留这一章压抑的氛围；不要大改前半段；把主角的动机写得更坚定一些。"
+                            className="mt-2 min-h-24 bg-white"
+                          />
                         </div>
-                        {review.notes.map((note, index) => (
-                          <p key={`${note}-${index}`}>{note}</p>
-                        ))}
-                      </div>
-                    ) : null}
-                  </AlertDescription>
-                </Alert>
-              ) : null}
+                      ) : null}
+                      {review.issues?.length ? (
+                        <div className="space-y-2 text-sm leading-6 text-slate-700">
+                          {review.issues.map((issue, index) => (
+                            <div key={`${issue.type}-${index}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-semibold text-rose-600">{issueTypeLabel(issue.type)}</span>
+                                {issue.severity ? <Badge variant="outline">{issue.severity}</Badge> : null}
+                                {issue.historicalChapterNumber ? <Badge variant="outline">第 {issue.historicalChapterNumber} 章</Badge> : null}
+                              </div>
+                              <p className="mt-1">{issue.description}</p>
+                              {issue.currentEvidence ? (
+                                <div className="mt-2 rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-slate-700">
+                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">当前章证据</p>
+                                  <p className="mt-1">{issue.currentEvidence}</p>
+                                </div>
+                              ) : null}
+                              {issue.historicalEvidence ? (
+                                <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-slate-700">
+                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">历史章证据</p>
+                                  <p className="mt-1">{issue.historicalEvidence}</p>
+                                </div>
+                              ) : null}
+                              {issue.suggestion ? <p className="mt-1 text-slate-500">建议：{issue.suggestion}</p> : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm leading-6 text-slate-600">这次生成没有发现明显问题，可以直接进入人工润色。</p>
+                      )}
+                      {review.notes?.length ? (
+                        <div className="space-y-2 rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm text-slate-600">
+                          <div className="flex items-center gap-2 font-medium text-slate-800">
+                            <Info className="size-4" />
+                            架构提示
+                          </div>
+                          {review.notes.map((note, index) => (
+                            <p key={`${note}-${index}`}>{note}</p>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </ScrollArea>
+                )}
+              </TabsContent>
 
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            title="版本历史"
-            description="回退动作应当在阅读态就清晰可见，而不是必须先进入编辑态。"
-          >
-            {versions.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                <History className="mx-auto mb-2 size-8 text-slate-400" />
-                还没有历史版本。第一次保存或重新生成后，这里会开始积累回退记录。
-              </div>
-            ) : (
-              <ScrollArea className="h-[300px] pr-4">
-                <div className="space-y-2">
-                  {versions.map((version) => (
-                    <div
-                      key={version.id}
-                      className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 transition-colors hover:bg-slate-100/70"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-slate-900">
-                          版本 {version.version_number}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          {new Date(version.created_at).toLocaleString()}
-                        </p>
-                      </div>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
+              <TabsContent value="versions" className="mt-4">
+                {versions.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                    <History className="mx-auto mb-2 size-8 text-slate-400" />
+                    还没有历史版本。
+                  </div>
+                ) : (
+                  <ScrollArea className="h-[min(620px,calc(100vh-24rem))] pr-3">
+                    <div className="space-y-2">
+                      {versions.map((version) => (
+                        <div
+                          key={version.id}
+                          className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 transition-colors hover:bg-slate-100/70"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-slate-900">版本 {version.version_number}</p>
+                            <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
+                              <Clock3 className="size-3" />
+                              {new Date(version.created_at).toLocaleString()}
+                            </p>
+                          </div>
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-7 px-2 text-xs shrink-0"
+                            className="h-7 shrink-0 px-2 text-xs"
                             onClick={() => handleRestore(version.version_number)}
                           >
                             <History className="mr-1 size-3" />
                             恢复
                           </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>恢复到此版本</TooltipContent>
-                      </Tooltip>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            )}
-          </SectionCard>
-        </div>
-
-        <SectionCard
-          title={mode === 'edit' ? '精修工作区' : '阅读视图'}
-          description={
-            mode === 'edit'
-              ? '专注编辑，可切换到阅读视图查看效果。'
-              : '先通读整章，再判断是继续润色、重生成，还是回退旧版本。'
-          }
-          actions={
-            mode === 'edit' ? (
-              <>
-                <Button variant="outline" onClick={handleCancel}>
-                  <X className="size-4" />
-                  取消编辑
-                </Button>
-                <Button variant="outline" onClick={() => handleSave({ regenerateMemory: false })} disabled={saving}>
-                  <Save className="size-4" />
-                  {saving ? '保存中...' : '保存'}
-                </Button>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button onClick={() => handleSave({ regenerateMemory: true })} disabled={saving}>
-                        <Save className="size-4" />
-                        {saving ? '保存中...' : '保存并更新记忆'}
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    保存章节并重新生成记忆卡
-                  </TooltipContent>
-                </Tooltip>
-              </>
-            ) : (
-              <Button variant="outline" onClick={() => setMode('edit')}>
-                <Edit3 className="size-4" />
-                开始润色
-              </Button>
-            )
-          }
-        >
-          {mode === 'edit' ? (
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>章节标题</Label>
-                  {hasUnsavedChanges && (
-                    <Badge variant="secondary" className="text-xs">
-                      未保存
-                    </Badge>
-                  )}
-                </div>
-                <Input
-                  value={editTitle}
-                  onChange={(event) => setEditTitle(event.target.value)}
-                  placeholder="输入章节标题"
-                  className="text-lg font-semibold"
-                />
-              </div>
-              <div className="space-y-2 flex-1 flex flex-col min-h-0">
-                <Label>正文内容</Label>
-                <div className="flex-1 min-h-0 rounded-md border border-slate-200 overflow-hidden">
-                  <MarkdownEditor
-                    value={editContent}
-                    onChange={setEditContent}
-                    placeholder="在这里撰写章节内容，支持 Markdown。"
-                  />
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="text-xs">
-                  <FileText className="mr-1 size-3" />
-                  第 {chapter.chapter_number} 章
-                </Badge>
-                <Badge variant={statusVariant(chapter.status)}>{statusLabel(chapter.status)}</Badge>
-                {hasUnsavedChanges && (
-                  <Badge variant="secondary" className="bg-amber-100 text-amber-700">
-                    有未保存修改
-                  </Badge>
+                  </ScrollArea>
                 )}
-              </div>
-              <ScrollArea className="max-h-[600px] overflow-auto">
-                <div className="prose prose-slate max-w-none pr-3 leading-7">
-                  <ReactMarkdown>
-                    {chapter.content || '*暂无内容，点击上方按钮开始生成或编辑正文。*'}
-                  </ReactMarkdown>
-                </div>
-              </ScrollArea>
-            </div>
-          )}
-        </SectionCard>
+              </TabsContent>
+            </Tabs>
+          </aside>
+        </div>
       </PageShell>
 
       <PublishDialog

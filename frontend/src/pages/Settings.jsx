@@ -235,7 +235,7 @@ function Settings() {
         </TabsContent>
 
         <TabsContent value="publish-config">
-          <SectionCard title="发布平台配置" description="配置 agent-browser 路径和各平台发布参数">
+          <SectionCard title="发布平台配置" description="配置 agent-browser 路径和平台启用状态；作品 ID 在具体小说里配置">
             <div className="grid gap-6">
               <div className="space-y-2">
                 <Label htmlFor="agent-browser-path">agent-browser 路径</Label>
@@ -301,18 +301,6 @@ function Settings() {
                               [p.key]: { ...prev[p.key], enabled: e.target.checked }
                             }))}
                             className="h-4 w-4 rounded border-input"
-                          />
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <Label className="w-16 shrink-0">作品 ID</Label>
-                          <Input
-                            value={config.workId || ''}
-                            onChange={(e) => setPublishConfig(prev => ({
-                              ...prev,
-                              [p.key]: { ...prev[p.key], workId: e.target.value }
-                            }))}
-                            placeholder="平台上的作品/书籍 ID"
-                            className="flex-1"
                           />
                         </div>
                       </CardContent>

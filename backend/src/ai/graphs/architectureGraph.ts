@@ -4,7 +4,7 @@ import { Novel, Architecture } from '../../models/sequelize';
 import { createLLM } from '../llmFactory';
 import { withRetry } from '../retryUtils';
 import { invokeWithStreaming } from '../streaming';
-import { parseJson, parseJsonWithRepair } from '../jsonUtils';
+import { parseJson, parseJsonWithRepair, strictJsonOutputRules } from '../jsonUtils';
 import * as aiStatus from '../../services/aiStatusService';
 
 // --- Single Architecture Generation ---
@@ -69,7 +69,8 @@ ${plotOutline ? `## 作者提供的情节思路（请在此基础上补全和丰
     "factions": ["势力1", "势力2"],
     "rules": "世界规则或武学体系说明"
   }
-}`;
+}
+${strictJsonOutputRules()}`;
 }
 
 async function loadContextNode(state: typeof ArchitectureGenerationState.State) {
@@ -121,7 +122,7 @@ ${siblingList}
 
 async function generateNode(state: typeof ArchitectureGenerationState.State) {
   const prompt = buildPrompt(state.novel, state.level, state.title || '', state.parentContext, state.siblingContext, state.volumeNumber, state.plotOutline);
-  const llm = await createLLM({ temperature: 0.8, maxTokens: 40000, provider: 'minimax' });
+  const llm = await createLLM({ temperature: 0.8, maxTokens: 40000, provider: 'deepseek' });
 
   try {
     const result = await withRetry(
@@ -131,7 +132,13 @@ async function generateNode(state: typeof ArchitectureGenerationState.State) {
           taskId: state.taskId,
           resetStream: true,
         });
-        return await parseJsonWithRepair(content, llm, (raw) => `请把以下文本修复成合法JSON：${raw}`);
+        return await parseJsonWithRepair(content, llm, (raw) => `请把以下文本修复成合法 JSON。
+要求：
+${strictJsonOutputRules()}
+保持原有语义，不要添加新结论。
+
+待修复文本：
+${raw}`);
       },
       { maxAttempts: 3, delayMs: 60000, signal: state.signal, label: 'generateArchitecture' }
     );
@@ -181,9 +188,33 @@ ${fullArch.world_setting ? `世界观：${fullArch.world_setting}` : ''}
 ${fullArch.characters ? `人物设定：${fullArch.characters}` : ''}` : ''}
 
 ## 要求
-请生成该卷下的所有章节规划，每个章节需要包含：标题和情节概括。
+请生成该卷下的所有章节规划。每章必须是可直接用于正文生成的执行型章纲，而不是笼统摘要。
 
-请以JSON数组格式返回结果。`;
+请以JSON数组格式返回结果，不要 markdown 代码块。数组内每个对象必须包含以下字段：
+[
+  {
+    "chapter_number": 1,
+    "title": "章节标题",
+    "chapter_goal": "本章在整卷中的叙事目标",
+    "plot_summary": "本章情节概括，说明开端、冲突、转折、结尾",
+    "plot_beats": ["情节点1", "情节点2", "情节点3"],
+    "required_characters": ["必须出场人物"],
+    "allowed_optional_characters": ["可短暂出场的人物或功能性角色"],
+    "scene_locations": ["主要场景"],
+    "conflict": "本章核心冲突",
+    "foreshadowing": ["本章埋下或推进的伏笔"],
+    "state_changes_expected": [
+      {
+        "entity": "人物/物品/关系/线索",
+        "field": "变化维度",
+        "from": "变化前",
+        "to": "变化后"
+      }
+    ],
+    "ending_hook": "章末钩子",
+    "forbidden_content": ["本章禁止提前写出的后续信息"]
+  }
+]`;
 }
 
 async function loadBatchContextNode(state: typeof ChapterBatchState.State) {
@@ -206,7 +237,7 @@ async function loadBatchContextNode(state: typeof ChapterBatchState.State) {
 
 async function generateBatchNode(state: typeof ChapterBatchState.State) {
   const prompt = buildChapterBatchPrompt(state.novel, state.volume, state.fullArch);
-  const llm = await createLLM({ temperature: 0.8, maxTokens: 40000, provider: 'minimax' });
+  const llm = await createLLM({ temperature: 0.8, maxTokens: 40000, provider: 'deepseek' });
 
   try {
     const result = await withRetry(
@@ -237,4 +268,10 @@ const chapterBatchGraph = new StateGraph(ChapterBatchState)
   .addEdge('generate', END)
   .compile();
 
-export { architectureGraph, chapterBatchGraph, ArchitectureGenerationState, ChapterBatchState };
+export {
+  architectureGraph,
+  chapterBatchGraph,
+  ArchitectureGenerationState,
+  ChapterBatchState,
+  buildChapterBatchPrompt,
+};

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { architectureApi, chapterApi } from '../services/api';
 import PublishDialog from '../components/PublishDialog';
 import { useFeedback } from '../components/ui/FeedbackProvider';
@@ -61,6 +61,7 @@ const initialForm = {
 
 function ArchitectureManager() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const feedback = useFeedback();
   const [architectures, setArchitectures] = useState([]);
   const [chapters, setChapters] = useState([]);
@@ -362,6 +363,32 @@ function ArchitectureManager() {
     }
   };
 
+  const handleOpenChapterArch = async (chapterArch) => {
+    const existingChapter = getChapterByArchId(chapterArch.id);
+    if (existingChapter) {
+      navigate(`/chapters/${existingChapter.id}`);
+      return;
+    }
+
+    try {
+      const maxChapterNumber = chapters.reduce(
+        (result, chapter) => Math.max(result, chapter.chapter_number || 0),
+        0
+      );
+      const res = await chapterApi.create(id, {
+        architectureId: chapterArch.id,
+        chapterNumber: maxChapterNumber + 1,
+        title: chapterArch.title,
+        content: '',
+        status: 'draft',
+      });
+      navigate(`/chapters/${res.data.id}`);
+    } catch (error) {
+      console.error('创建章节失败:', error);
+      feedback.error(error.response?.data?.error || '创建章节失败，请稍后再试。');
+    }
+  };
+
   const closePreview = () => {
     setShowContentPreview(false);
     setPreviewContent('');
@@ -505,6 +532,24 @@ function ArchitectureManager() {
   const fullArch = architectures.find((arch) => arch.level === 'full');
   const volumes = architectures.filter((arch) => arch.level === 'volume');
   const chapterArchs = architectures.filter((arch) => arch.level === 'chapter');
+  const projectedChapterNumberByArchId = useMemo(() => {
+    const volumeOrder = new Map(
+      [...volumes]
+        .sort((left, right) => (left.id || 0) - (right.id || 0))
+        .map((volume, index) => [volume.id, index])
+    );
+
+    const orderedChapterArchs = [...chapterArchs].sort((left, right) => {
+      const leftVolumeOrder = volumeOrder.get(left.parent_id) ?? Number.MAX_SAFE_INTEGER;
+      const rightVolumeOrder = volumeOrder.get(right.parent_id) ?? Number.MAX_SAFE_INTEGER;
+      if (leftVolumeOrder !== rightVolumeOrder) return leftVolumeOrder - rightVolumeOrder;
+      return (left.id || 0) - (right.id || 0);
+    });
+
+    return new Map(
+      orderedChapterArchs.map((arch, index) => [arch.id, index + 1])
+    );
+  }, [chapterArchs, volumes]);
 
   const stats = useMemo(
     () => [
@@ -713,18 +758,25 @@ function ArchitectureManager() {
                           <div className="mt-5 grid gap-3">
                             {volumeChapterArchs.map((chapterArch, index) => {
                               const existingChapter = getChapterByArchId(chapterArch.id);
+                              const projectedChapterNumber = projectedChapterNumberByArchId.get(chapterArch.id);
                               return (
                                 <Card key={chapterArch.id} className="border-slate-200/60 bg-slate-50/50">
                                   <CardContent className="p-4">
                                     <div className="flex items-start gap-3">
                                       <div className="min-w-0 flex-1">
                                         <div className="flex flex-wrap items-center gap-2">
-                                          <Badge variant="outline" className="border-amber-200 text-amber-700 shrink-0">
-                                            第{index + 1}章
-                                          </Badge>
-                                          <p className="text-sm font-semibold text-slate-900">
+                                          {projectedChapterNumber ? (
+                                            <Badge variant={existingChapter ? 'secondary' : 'outline'} className="shrink-0">
+                                              第{existingChapter?.chapter_number || projectedChapterNumber}章
+                                            </Badge>
+                                          ) : null}
+                                          <button
+                                            type="button"
+                                            onClick={() => handleOpenChapterArch(chapterArch)}
+                                            className="text-left text-sm font-semibold text-slate-900 underline-offset-4 hover:text-primary hover:underline"
+                                          >
                                             {chapterArch.title}
-                                          </p>
+                                          </button>
                                           {existingChapter && (
                                             <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 shrink-0">
                                               已生成正文

@@ -12,7 +12,16 @@ if (!fs.existsSync(dbDir)) {
 const sequelize = new Sequelize({
   dialect: 'sqlite',
   storage: dbPath,
-  logging: false
+  logging: false,
+  pool: {
+    max: 1,
+    min: 0,
+    acquire: 3000,
+    idle: 10000,
+  },
+  dialectOptions: {
+    timeout: 3000,
+  },
 });
 
 interface NovelAttributes {
@@ -20,6 +29,7 @@ interface NovelAttributes {
   title: string;
   description: string | null;
   genre: string | null;
+  publish_config: string | null;
   created_at?: Date;
   updated_at?: Date;
 }
@@ -31,6 +41,7 @@ class Novel extends Model<NovelAttributes, NovelCreationAttributes> implements N
   declare title: string;
   declare description: string | null;
   declare genre: string | null;
+  declare publish_config: string | null;
   declare created_at: Date;
   declare updated_at: Date;
 }
@@ -50,6 +61,9 @@ Novel.init({
   },
   genre: {
     type: DataTypes.STRING
+  },
+  publish_config: {
+    type: DataTypes.TEXT
   }
 }, {
   tableName: 'novels',
@@ -573,6 +587,8 @@ ScheduledTask.belongsTo(Chapter, { foreignKey: 'chapter_id', as: 'chapter' });
 Chapter.hasMany(ScheduledTask, { foreignKey: 'chapter_id', as: 'tasks' });
 
 async function initDatabase(): Promise<void> {
+  await sequelize.query('PRAGMA journal_mode = WAL;');
+  await sequelize.query('PRAGMA busy_timeout = 3000;');
   await sequelize.sync({ force: false, hooks: false });
   await ensureLegacySchema();
   console.log('数据库初始化完成 (Sequelize)');
@@ -580,6 +596,14 @@ async function initDatabase(): Promise<void> {
 
 async function ensureLegacySchema(): Promise<void> {
   const queryInterface = sequelize.getQueryInterface();
+  const novelColumns = await queryInterface.describeTable('novels');
+  if (!novelColumns.publish_config) {
+    await queryInterface.addColumn('novels', 'publish_config', {
+      type: DataTypes.TEXT,
+      allowNull: true
+    });
+  }
+
   const chapterColumns = await queryInterface.describeTable('chapters');
 
   if (!chapterColumns.review_result) {

@@ -57,9 +57,12 @@ async function publish(platformKey: string, chapter: any, platformConfig: any, s
     return stdout;
   };
   const chapterData = { title: chapter.title || `第${chapter.chapter_number}章`, chapterNumber: chapter.chapter_number, plainContent: stripMarkdown(chapter.content) };
-  const steps = mode === 'draft' ? platform.getDraftSteps(platformConfig.workId, chapterData) : platform.getPublishSteps(platformConfig, chapterData);
-  for (const step of steps) { await run(step.action, ...step.args); }
-  return { success: true, platform: platformKey };
+  const steps = mode === 'draft' ? platform.getDraftSteps(platformConfig.workId, chapterData) : platform.getPublishSteps(platformConfig.workId, chapterData);
+  for (const step of steps) {
+    console.log(`[publish] ${platformKey}: step ${step.label}`);
+    await step.execute(run);
+  }
+  return { status: 'success', success: true, platform: platformKey };
 }
 
 async function openLoginBrowser(platformKey: string): Promise<any> {

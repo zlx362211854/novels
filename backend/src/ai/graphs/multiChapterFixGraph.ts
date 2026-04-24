@@ -2,7 +2,7 @@ import { Annotation, StateGraph, START, END } from '@langchain/langgraph';
 import { HumanMessage } from '@langchain/core/messages';
 import { Chapter, MultiChapterReview } from '../../models/sequelize';
 import { createLLM } from '../llmFactory';
-import { extractJsonObject } from '../jsonUtils';
+import { extractJsonObject, strictJsonOutputRules } from '../jsonUtils';
 import { createProgressTracker } from '../progressAdapter';
 import { invokeWithStreaming } from '../streaming';
 
@@ -57,7 +57,8 @@ ${content}
 补充要求：
 1. JSON 中不要包含 revisedContent 字段
 2. 完整正文放在 <<<REVISED_CONTENT>>> 和 <<<END_REVISED_CONTENT>>> 之间
-3. 如果你没法严格按格式输出，至少保证完整正文单独连续输出，不要截断`;
+3. ${strictJsonOutputRules({ allowExtraText: true })}
+4. 如果你没法严格按格式输出，至少保证完整正文单独连续输出，不要截断`;
 }
 
 function buildRepairPrompt(raw: string): string {
@@ -65,6 +66,7 @@ function buildRepairPrompt(raw: string): string {
 
 要求：
 1. 只能输出两部分：一个 JSON 对象 + 一个正文块
+${strictJsonOutputRules({ allowExtraText: true })}
 2. JSON 结构为：
 {
   "summary": "修改摘要",
@@ -224,6 +226,7 @@ async function generateFixesNode(state: typeof MultiChapterFixState.State) {
   const llm = await createLLM({
     temperature: 0.7,
     maxTokens: 12000,
+    provider: 'deepseek'
   });
   const drafts: any[] = [];
 

@@ -1,7 +1,7 @@
 import { Annotation, StateGraph, START, END } from '@langchain/langgraph';
 import { HumanMessage } from '@langchain/core/messages';
 import { createLLM } from '../llmFactory';
-import { parseJson } from '../jsonUtils';
+import { parseJson, strictJsonOutputRules } from '../jsonUtils';
 import { invokeWithStreaming } from '../streaming';
 import * as aiStatus from '../../services/aiStatusService';
 
@@ -103,8 +103,8 @@ ${chapter.content || ''}
 2. evidence 和 excerpt 必须来自正文的短原句，不要改写过度
 3. 没有的字段返回空数组，不要省略
 4. 只保留和硬逻辑相关的信息
-5. 输出必须是合法 JSON，不要加 markdown 代码块
-6. 所有字符串必须使用英文半角双引号 "
+5. ${strictJsonOutputRules()}
+6. JSON 的 key 和字符串边界使用英文半角双引号；字符串内容里引用原文时使用中文引号“”
 7. summary、evidence、excerpt、thread 尽量简短，避免冗长`;
 }
 
@@ -114,7 +114,7 @@ function buildRepairPrompt(rawResult: string): string {
 要求：
 1. 只能输出 JSON
 2. 保持原有语义，不要添加新结论
-3. 所有字符串必须使用英文半角双引号 "
+3. ${strictJsonOutputRules()}
 4. 结构必须保持为章节记忆卡：
 {
   "summary": "",
@@ -137,7 +137,7 @@ ${rawResult}`;
 
 // Node: call LLM to extract memory
 async function callLLMNode(state: typeof MemoryExtractionState.State) {
-  const llm = await createLLM({ temperature: 0.2, maxTokens: 12000, provider: 'minimax' });
+  const llm = await createLLM({ temperature: 0.2, maxTokens: 12000, provider: 'deepseek' });
   const prompt = buildMemoryPrompt(state.chapter, state.novel, state.architecture);
 
   console.log('[AI] 开始调用 LLM (chapter-memory)');
@@ -168,7 +168,7 @@ async function parseResponseNode(state: typeof MemoryExtractionState.State) {
 
 // Node: repair JSON via LLM
 async function repairJsonNode(state: typeof MemoryExtractionState.State) {
-  const llm = await createLLM({ temperature: 0.2 });
+  const llm = await createLLM({ temperature: 0.2, provider: 'deepseek' });
   console.log('[AI] 尝试修复记忆卡 JSON...');
   const repaired = await invokeWithStreaming(
     llm,

@@ -1,28 +1,98 @@
 import { Architecture, Chapter, ChapterMemory } from '../models/sequelize';
 
-async function getPreviousChapterContent(currentArchId: number, parentId: number | null): Promise<any> {
-  if (!parentId) return null;
+function parseJsonField(value: any, fallback: any): any {
+  if (!value) return fallback;
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
 
-  const prevArch = await Architecture.findOne({
-    where: { parent_id: parentId, level: 'chapter' },
-    order: [['id', 'DESC']]
-  });
+function formatPreviousChapterMemory(memory: any): string {
+  if (!memory) return '';
 
-  if (!prevArch || prevArch.id >= currentArchId) {
-    const alternatives = await Architecture.findAll({
-      where: { parent_id: parentId, level: 'chapter' },
-      order: [['id', 'DESC']]
-    });
-    if (alternatives.length > 0) {
-      const targetId = alternatives[0].id;
-      if (targetId < currentArchId) {
-        return await getChapterByArchitectureId(targetId);
-      }
-    }
-    return null;
+  const facts = parseJsonField(memory.facts, []);
+  const stateChanges = parseJsonField(memory.state_changes, []);
+  const openThreads = parseJsonField(memory.open_threads, []);
+  const keyEvents = parseJsonField(memory.key_events, []);
+
+  const sections: string[] = [];
+
+  if (Array.isArray(keyEvents) && keyEvents.length > 0) {
+    sections.push([
+      '**上一章关键事件：**',
+      keyEvents.slice(0, 6).map((event: any) => {
+        const time = event.time ? `[${event.time}]` : '';
+        const chars = Array.isArray(event.characters) && event.characters.length
+          ? `（${event.characters.join('、')}）`
+          : '';
+        return `- ${time}${event.event || ''}${chars}`;
+      }).join('\n')
+    ].join('\n'));
   }
 
+  if (Array.isArray(facts) && facts.length > 0) {
+    sections.push([
+      '**上一章关键事实：**',
+      facts.slice(0, 10).map((f: any) => `- ${f.subject || ''} ${f.predicate || ''} ${f.object || ''}`.trim()).join('\n')
+    ].join('\n'));
+  }
+
+  if (Array.isArray(stateChanges) && stateChanges.length > 0) {
+    sections.push([
+      '**上一章状态变化：**',
+      stateChanges.slice(0, 8).map((s: any) => `- ${s.entity || ''}.${s.field || ''}：${s.before ?? '?'} → ${s.after ?? '?'}`).join('\n')
+    ].join('\n'));
+  }
+
+  if (Array.isArray(openThreads) && openThreads.length > 0) {
+    sections.push([
+      '**上一章未解决线索：**',
+      openThreads.slice(0, 8).map((thread: any) => {
+        const label = typeof thread === 'string' ? thread : thread.thread;
+        const status = typeof thread === 'string' ? '' : thread.status;
+        return `- ${label || ''}${status ? `（${status}）` : ''}`;
+      }).join('\n')
+    ].join('\n'));
+  }
+
+  return sections.filter(Boolean).join('\n\n');
+}
+
+async function getPreviousChapterContent(currentArchId: number, parentId: number | null): Promise<any> {
+  const currentArch = await Architecture.findByPk(currentArchId);
+  if (!currentArch) return null;
+
+  const volumes = await Architecture.findAll({
+    where: { novel_id: currentArch.novel_id, level: 'volume' },
+    order: [['id', 'ASC']]
+  });
+  const volumeOrder = new Map(volumes.map((volume: any, index: number) => [volume.id, index]));
+
+  const chapterArchitectures = await Architecture.findAll({
+    where: { novel_id: currentArch.novel_id, level: 'chapter' },
+    order: [['id', 'ASC']]
+  });
+
+  const orderedArchitectures = chapterArchitectures.sort((left: any, right: any) => {
+    const leftOrder = volumeOrder.get(left.parent_id) ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = volumeOrder.get(right.parent_id) ?? Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    return left.id - right.id;
+  });
+
+  const prevArch = selectPreviousChapterArchitecture(orderedArchitectures, currentArchId);
+  if (!prevArch) return null;
+
   return await getChapterByArchitectureId(prevArch.id);
+}
+
+function selectPreviousChapterArchitecture(siblings: any[], currentArchId: number): any | null {
+  const currentIndex = siblings.findIndex((arch: any) => arch.id === currentArchId);
+  if (currentIndex <= 0) return null;
+  return siblings[currentIndex - 1] || null;
 }
 
 async function getChapterByArchitectureId(archId: number): Promise<any> {
@@ -40,8 +110,10 @@ async function getChapterByArchitectureId(archId: number): Promise<any> {
     const memoryRecord = await ChapterMemory.findOne({
       where: { chapter_id: prevChapter.id }
     });
-    if (memoryRecord && (memoryRecord as any).memory_data) {
-      prevMemory = (memoryRecord as any).memory_data;
+    if (memoryRecord) {
+      prevMemory = typeof (memoryRecord as any).get === 'function'
+        ? (memoryRecord as any).get({ plain: true })
+        : memoryRecord;
     }
   }
 
@@ -53,7 +125,15 @@ async function getChapterByArchitectureId(archId: number): Promise<any> {
   };
 }
 
-function buildChapterPrompt(novel: any, chapterArch: any, volumeArch: any, fullArch: any, prevChapterContent: any, volumeChapterArchs: any[] = []): string {
+function buildChapterPrompt(
+  novel: any,
+  chapterArch: any,
+  volumeArch: any,
+  fullArch: any,
+  prevChapterContent: any,
+  volumeChapterArchs: any[] = [],
+  userPrompt: string = ''
+): string {
   let context = `## 小说信息
 标题：${novel.title}
 类型：${novel.genre || '未指定'}
@@ -117,10 +197,10 @@ function buildChapterPrompt(novel: any, chapterArch: any, volumeArch: any, fullA
 
   if (volumeChapterArchs.length > 0) {
     context += `\n## 本卷章节架构（按顺序）\n`;
-    context += `⚠️ 以下是本卷所有章节的架构信息，请了解整体脉络和角色出场顺序，但只撰写「本章架构」中指定的内容，不得提前写出后续章节的情节。\n`;
+    context += `⚠️ 以下是本卷所有章节的架构信息，请了解整体脉络和角色出场顺序，但只撰写「本章架构」中指定的内容，不得提前写出后续章节的情节。这里展示的是卷内顺序提示，不是正文的全书章号。\n`;
     volumeChapterArchs.forEach((arch, index) => {
       const isCurrentChapter = arch.id === chapterArch.id;
-      const marker = isCurrentChapter ? '【当前章节】' : `【第${index + 1}章】`;
+      const marker = isCurrentChapter ? '【当前章节】' : `【同卷顺位${index + 1}】`;
       context += `\n${marker} ${arch.title || '未命名'}\n`;
       if (arch.plot_outline) {
         context += `  情节：${arch.plot_outline}\n`;
@@ -140,15 +220,7 @@ function buildChapterPrompt(novel: any, chapterArch: any, volumeArch: any, fullA
 
   let prevChapterInfo = '';
   if (prevChapterContent) {
-    let memorySection = '';
-    if (prevChapterContent.memory && prevChapterContent.memory.facts && prevChapterContent.memory.facts.length > 0) {
-      const facts = prevChapterContent.memory.facts;
-      const keyFacts = facts.slice(0, 10).map((f: any) => `- ${f.subject} ${f.predicate} ${f.object}`).join('\n');
-      memorySection = `
-**关键事实：**
-${keyFacts}
-`;
-    }
+    const memorySection = formatPreviousChapterMemory(prevChapterContent.memory);
 
     prevChapterInfo = `
 ## 上一章结尾（参考）
@@ -180,6 +252,11 @@ ${memorySection}
     chapterInfo += `\n情感基调：${chapterArch.emotional_tone}`;
   }
 
+  const normalizedUserPrompt = typeof userPrompt === 'string' ? userPrompt.trim() : '';
+  const userPromptSection = normalizedUserPrompt
+    ? `\n## 用户补充要求（优先遵守）\n${normalizedUserPrompt}\n`
+    : '';
+
   return `你是一位深谙金庸武侠笔法的小说作家。请根据以下架构信息，以金庸风格撰写章节正文。
 
 ## 金庸武侠写作风格指南（核心，贯穿全文）
@@ -205,7 +282,7 @@ ${memorySection}
 ### 场景与意境
 - 场景描写有**诗词意境**，借景抒情，山川草木皆有情
 - 江湖气息浓厚：酒肆、古道、深山、月夜是常见舞台，描写时注重氛围营造
-- **诗词运用**（重要）：每章须在恰当处插入1-2处诗词，方式可选：
+- **诗词运用**（重要）：诗词非必须，仅在情绪或意境自然升华时插入，方式可选：
   1. 引用真实的唐宋古诗、词、歌谣（如白居易、苏轼、辛弃疾等），须与场景情绪高度契合
   2. 仿古自创：以文言仿写四言、五言、七言诗句或词牌片段，风格须与引文无异，不可露出现代痕迹
   - 插入形式：可由人物吟诵、叙述者引出、匾额题字、酒旗所书等方式自然融入
@@ -231,6 +308,8 @@ ${prevChapterInfo}
 
 ${chapterInfo}
 
+${userPromptSection}
+
 ## 基本要求
 - **行文风格（核心，贯穿全文）**：
   - 语言：**半文半白**，以古典白话为主干，四字短语、对仗句式、文言虚词（”却、便、只见、但见、须知”等）自然穿插；句式长短相间，错落有致；**严禁现代口语、网络用语及西化句式**
@@ -240,7 +319,7 @@ ${chapterInfo}
   - 人物对话：言简意赅，江湖人物惜字如金，一语双关；忌长篇说教和现代逻辑
   - 整体气质贴近《射雕英雄传》《神雕侠侣》《倚天屠龙记》，风骨端正，侠气盎然
 - **字数**：4500-6000字（硬性要求：不得少于4500字，不得超过6000字）
-- **严格边界（核心禁令）**：只生成「本章架构·内容概括」所描述的情节范围内的内容。凡本章内容概括中未提及的人物，一律不得在本章正文中出现，哪怕该人物在全本设定中存在。
+- **严格边界（核心禁令）**：只生成「本章架构·内容概括」所描述的情节范围内的内容。不得新增本章架构未授权的主要人物；如需路人、店家、守卫等功能性小人物推动场景，必须一笔带过，不得喧宾夺主或引入新主线。
 - 严格围绕本章架构的内容概括展开，不得偏离主线，不得跳过架构中的核心情节
 - 严格遵循全本架构的世界观设定（时代、地理、规则等），不得出现与之冲突的内容
 - ${prevChapterContent ? '根据上一章结尾情况，灵活处理章节衔接（参考上方衔接说明）' : '注意故事的开篇吸引力'}
@@ -277,7 +356,7 @@ ${chapterInfo}
 - **铺垫到位**：核心冲突、关键转折须有足够铺垫（通过人物对话、场景描写、细节暗示让冲突/转折自然出现）
 - **关联紧密**：本章情节须与前后章节紧密关联，既完成本章核心内容，又为后续情节埋下伏笔或做好衔接，避免孤立章节
 - **冲突合理**：冲突须贴合人物身份和小说核心线，冲突的解决/推进须符合逻辑，避免强行解围
-- **内容边界**：架构未提及的人物可出现推动情节，但不能喧宾夺主；不得"剧透"后续章节具体情节
+- **内容边界**：不得越过本章架构提前写后续章节具体情节；功能性小人物只能服务当前场景，不能承担新主线
 
 ## 六、禁止事项
 - 禁用与小说设定不符的词汇、物品、行为、常识
@@ -295,6 +374,8 @@ ${chapterInfo}
 
 export {
   buildChapterPrompt,
+  formatPreviousChapterMemory,
   getPreviousChapterContent,
   getChapterByArchitectureId,
+  selectPreviousChapterArchitecture,
 };

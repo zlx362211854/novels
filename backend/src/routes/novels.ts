@@ -13,11 +13,11 @@ const router = Router();
 
 router.post('/', async (req: Request, res: Response) => {
     try {
-        const { title, description, genre } = req.body;
+        const { title, description, genre, publishConfig } = req.body;
         if (!title) {
             return res.status(400).json({ error: '标题不能为空' });
         }
-        const novel = await novelService.create({ title, description, genre });
+        const novel = await novelService.create({ title, description, genre, publishConfig });
         res.status(201).json(novel);
     } catch (error) {
         res.status(500).json({ error: (error as Error).message });
@@ -47,8 +47,8 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 router.put('/:id', async (req: Request, res: Response) => {
     try {
-        const { title, description, genre } = req.body;
-        const novel = await novelService.update(String(req.params.id), { title, description, genre });
+        const { title, description, genre, publishConfig } = req.body;
+        const novel = await novelService.update(String(req.params.id), { title, description, genre, publishConfig });
         if (!novel) {
             return res.status(404).json({ error: '小说不存在' });
         }
@@ -106,6 +106,15 @@ router.get('/:id/architectures', async (req: Request, res: Response) => {
     try {
         const architectures = await architectureService.findByNovelId(String(req.params.id));
         res.json(architectures);
+    } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+    }
+});
+
+router.post('/:id/chapters/renumber', async (req: Request, res: Response) => {
+    try {
+        await architectureService.renumberNovelChapters(String(req.params.id));
+        res.json({ message: '章节编号已重排' });
     } catch (error) {
         res.status(500).json({ error: (error as Error).message });
     }

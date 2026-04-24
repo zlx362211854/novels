@@ -5,7 +5,7 @@ import { Chapter, Novel, Architecture } from '../../models/sequelize';
 import * as chapterMemoryService from '../../services/chapterMemoryService';
 import * as reviewContextService from '../../services/reviewContextService';
 import { createLLM, getAIConfig } from '../llmFactory';
-import { parseJsonWithRepair } from '../jsonUtils';
+import { parseJsonWithRepair, strictJsonOutputRules } from '../jsonUtils';
 import * as aiStatus from '../../services/aiStatusService';
 import { invokeWithStreaming } from '../streaming';
 
@@ -178,7 +178,8 @@ ${relevantMemories.map((memory: any, index: number) => `### 第${memory.chapter_
       "suggestion": "string"
     }
   ]
-}`;
+}
+${strictJsonOutputRules()}`;
 }
 
 function mergeAiIssues(reviewResult: any, continuityResult: any): any {
@@ -194,12 +195,7 @@ function mergeAiIssues(reviewResult: any, continuityResult: any): any {
     }
   });
 
-  const highPenalty = mergedIssues.filter((issue: any) => issue?.severity === 'high').length * 12;
-  const mediumPenalty = mergedIssues.filter((issue: any) => issue?.severity === 'medium').length * 6;
-  const baseScore = typeof reviewResult?.score === 'number' ? reviewResult.score : 100;
-
   return {
-    score: Math.max(0, baseScore - highPenalty - mediumPenalty),
     issues: mergedIssues,
     notes: Array.isArray(reviewResult?.notes) ? reviewResult.notes : [],
   };
@@ -210,10 +206,10 @@ function formatVolumeChapterArchs(volumeChapterArchs: any[], currentChapterId: n
   // 用全量记忆（按 chapter_id 索引）而非仅 relevantMemories，确保每章都能查到物品信息
   const memoryMap = new Map([...allMemories, ...relevantMemories].map((m: any) => [m.chapter_id, m]));
   let text = `## 本卷章节架构（按顺序，用于理解角色出场时机和物品获取）\n`;
-  text += `⚠️ 以下是本卷所有章节的架构信息，请结合这些信息判断角色/物品是否"应在当前章节出现"。\n`;
+  text += `⚠️ 以下是本卷所有章节的架构信息，请结合这些信息判断角色/物品是否"应在当前章节出现"。这里的顺位标签仅表示卷内先后，不是正文的全书章号，禁止据此报告“正文序号与架构不一致”。\n`;
   volumeChapterArchs.forEach((arch, index) => {
     const isCurrentChapter = arch.id === currentChapterId;
-    const marker = isCurrentChapter ? '【当前章节】' : `【第${index + 1}章】`;
+    const marker = isCurrentChapter ? '【当前章节】' : `【同卷顺位${index + 1}】`;
     text += `\n${marker} ${arch.title || '未命名'}\n`;
     if (arch.plot_outline) {
       text += `  情节：${arch.plot_outline}\n`;
@@ -236,7 +232,7 @@ function formatVolumeChapterArchs(volumeChapterArchs: any[], currentChapterId: n
   return text;
 }
 
-function buildReviewPrompt(chapter: any, novel: any, architecture: any, config: any, reviewContext: any = {}, volumeChapterArchs: any[] = [], allMemories: any[] = []): string {
+export function buildReviewPrompt(chapter: any, novel: any, architecture: any, config: any, reviewContext: any = {}, volumeChapterArchs: any[] = [], allMemories: any[] = []): string {
   const strictnessGuide = config.reviewStrictness === 'strict' ? '请严格审核，任何不一致都需要指出' : '请宽松审核，只指出明显的不一致问题';
   const relevantMemories = Array.isArray(reviewContext.relevantMemories) ? reviewContext.relevantMemories : [];
   const sourceExcerpts = Array.isArray(reviewContext.sourceExcerpts) ? reviewContext.sourceExcerpts : [];
@@ -300,12 +296,20 @@ ${formatVolumeChapterArchs(volumeChapterArchs, chapter.id, relevantMemories, all
 请注意：
 - 角色列表包含的是"全书角色"，不代表每个角色都应在当前章节出现。判断角色"缺失"问题时，需要结合历史记忆卡判断该角色是否已在更早章节出场。只有当角色在历史章节中已出场过，或架构明确要求当前章节必须出现，才报告"角色缺失"问题。如果角色在所有历史章节中都未出场，则可能是该角色的出场时机尚未到来，不应报告为缺失。
 - 物品/功法获取时机：当前章节出现的物品，必须在该章节或更早章节的"已知物品"列表中出现。如果当前章节出现了某物品但它只在后续章节的"已知物品"中出现，说明该物品出现时机错误。
+- “本卷章节架构”里的顺位标签仅用于表示卷内先后，不等于正文的全书章号；正文写“第12章”而当前架构在本卷中排第2位，并不构成错误。
 只报告有原文直接证据的错误，不得基于推测或训练数据中的常识报告问题。
-请返回JSON格式：{ "score": number, "issues": [{ "type": string, "severity": string, "description": string, "currentEvidence": string, "historicalEvidence": string, "historicalChapterNumber": number|null, "suggestion": string }], "notes": [] }`;
+请返回JSON格式：{ "issues": [{ "type": string, "severity": string, "description": string, "currentEvidence": string, "historicalEvidence": string, "historicalChapterNumber": number|null, "suggestion": string }], "notes": [] }
+${strictJsonOutputRules()}`;
 }
 
 function buildRepairPrompt(rawResult: string): string {
-  return `请把以下文本修复成合法JSON：${rawResult}`;
+  return `请把以下文本修复成合法 JSON。
+要求：
+${strictJsonOutputRules()}
+保持原有语义，不要添加新结论。
+
+待修复文本：
+${rawResult}`;
 }
 
 // Node: load context from DB if not preloaded
@@ -406,7 +410,7 @@ async function buildContextNode(state: typeof ChapterReviewState.State) {
 // Node: call LLM for review
 async function runReviewNode(state: typeof ChapterReviewState.State) {
   const config = await getAIConfig();
-  const llm = await createLLM({ temperature: 0.2, maxTokens: 40000, provider: 'minimax' });
+  const llm = await createLLM({ temperature: 0.2, maxTokens: 40000, provider: 'deepseek' });
 
   const prompt = buildReviewPrompt(
     state.chapter,
@@ -458,7 +462,6 @@ async function runReviewNode(state: typeof ChapterReviewState.State) {
     console.error('审核失败:', error.message);
     return {
       reviewResult: {
-        score: 0,
         issues: [{ type: 'review_error', severity: 'high', description: '审核服务异常', currentEvidence: '', historicalEvidence: '', historicalChapterNumber: null, suggestion: error.message }],
         notes: [],
       },

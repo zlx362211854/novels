@@ -57,10 +57,10 @@ export async function createLLM(options: LLMOptions = {}): Promise<ChatOpenAI> {
 
   if (provider === 'deepseek') {
     return new ChatOpenAI({
-      model: 'deepseek-reasoner',
+      model: 'deepseek-v4-flash',
       temperature: options.temperature ?? 0.8,
       maxTokens: options.maxTokens ?? 8000,
-      configuration: { baseURL: config.deepseekApiUrl },
+      configuration: { baseURL: config.deepseekApiUrl},
       apiKey: config.deepseekApiKey,
     });
   }

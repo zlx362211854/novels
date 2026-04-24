@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { architectureApi, chapterApi, exportApi, novelApi } from '../services/api';
+import { architectureApi, chapterApi, exportApi, novelApi, publishApi } from '../services/api';
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
 import { Button } from '../components/ui/button';
@@ -39,7 +39,14 @@ function NovelDetail() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [editForm, setEditForm] = useState({ title: '', description: '', genre: '' });
+  const [publishPlatforms, setPublishPlatforms] = useState([]);
+  const [editForm, setEditForm] = useState({ title: '', description: '', genre: '', publishConfig: {} });
+
+  const parsePublishConfig = (value) => {
+    if (!value) return {};
+    if (typeof value !== 'string') return value;
+    try { return JSON.parse(value); } catch { return {}; }
+  };
 
   useEffect(() => {
     loadData();
@@ -48,18 +55,21 @@ function NovelDetail() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [novelRes, archRes, chapterRes] = await Promise.all([
+      const [novelRes, archRes, chapterRes, platformsRes] = await Promise.all([
         novelApi.getById(id),
         architectureApi.getByNovelId(id),
         chapterApi.getByNovelId(id),
+        publishApi.platforms().catch(() => ({ data: [] })),
       ]);
       setNovel(novelRes.data);
       setArchitectures(archRes.data);
       setChapters(chapterRes.data);
+      setPublishPlatforms(platformsRes.data);
       setEditForm({
         title: novelRes.data.title,
         description: novelRes.data.description || '',
         genre: novelRes.data.genre || '',
+        publishConfig: parsePublishConfig(novelRes.data.publish_config),
       });
     } catch (error) {
       console.error('加载数据失败:', error);
@@ -73,8 +83,8 @@ function NovelDetail() {
     event.preventDefault();
     setSaving(true);
     try {
-      await novelApi.update(id, editForm);
-      setNovel((current) => ({ ...current, ...editForm }));
+      const res = await novelApi.update(id, editForm);
+      setNovel(res.data);
       setEditing(false);
       feedback.success('小说信息已更新。');
     } catch (error) {
@@ -91,6 +101,7 @@ function NovelDetail() {
       title: novel?.title || '',
       description: novel?.description || '',
       genre: novel?.genre || '',
+      publishConfig: parsePublishConfig(novel?.publish_config),
     });
   };
 
@@ -300,6 +311,40 @@ function NovelDetail() {
                 onChange={(e) => setEditForm({ ...editForm, genre: e.target.value })}
                 placeholder="玄幻 / 科幻 / 都市..."
               />
+            </div>
+            <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+              <div>
+                <p className="text-sm font-medium">发布作品 ID</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  同一部小说在不同平台的作品 ID 在这里配置，平台启用状态仍在系统设置中管理。
+                </p>
+              </div>
+              {publishPlatforms.length ? (
+                publishPlatforms.map((platform) => {
+                  const platformConfig = editForm.publishConfig?.[platform.key] || {};
+                  return (
+                    <div key={platform.key} className="flex items-center gap-3">
+                      <Label className="w-20 shrink-0">{platform.name}</Label>
+                      <Input
+                        value={platformConfig.workId || ''}
+                        onChange={(event) => setEditForm((current) => ({
+                          ...current,
+                          publishConfig: {
+                            ...current.publishConfig,
+                            [platform.key]: {
+                              ...current.publishConfig?.[platform.key],
+                              workId: event.target.value,
+                            },
+                          },
+                        }))}
+                        placeholder="平台上的作品/书籍 ID"
+                      />
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-sm text-muted-foreground">暂无可配置的发布平台。</p>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={handleCancelEdit}>

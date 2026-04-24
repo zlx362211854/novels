@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { CheckCheck, SkipForward } from 'lucide-react';
+import { buildUnifiedDiffRows } from '@/lib/unifiedDiff';
 
 /**
  * LCS-based paragraph diff.
@@ -66,6 +67,32 @@ function ParagraphBlock({ item }) {
   );
 }
 
+const UNIFIED_ROW_STYLES = {
+  unchanged: 'border-l-4 border-transparent bg-white text-slate-700',
+  removed: 'border-l-4 border-rose-500 bg-rose-50 text-rose-950',
+  added: 'border-l-4 border-emerald-500 bg-emerald-50 text-emerald-950',
+};
+
+const UNIFIED_MARKER_STYLES = {
+  unchanged: 'text-slate-400',
+  removed: 'text-rose-600',
+  added: 'text-emerald-700',
+};
+
+function UnifiedDiffRow({ row, index }) {
+  return (
+    <div className={`grid grid-cols-[4rem_2rem_1fr] border-b border-slate-100 font-mono text-xs leading-6 ${UNIFIED_ROW_STYLES[row.type]}`}>
+      <div className="select-none border-r border-slate-200 bg-slate-50/80 px-2 text-right text-slate-400">
+        {index + 1}
+      </div>
+      <div className={`select-none px-2 text-center font-semibold ${UNIFIED_MARKER_STYLES[row.type]}`}>
+        {row.marker}
+      </div>
+      <pre className="whitespace-pre-wrap break-words px-3 py-2 font-[inherit]">{row.text || ' '}</pre>
+    </div>
+  );
+}
+
 /**
  * Props:
  * - originalContent: string
@@ -75,6 +102,9 @@ function ParagraphBlock({ item }) {
  * - title: string
  * - onAccept: () => void
  * - onSkip: () => void
+ * - acceptLabel?: string
+ * - skipLabel?: string
+ * - variant?: 'split' | 'unified'
  * - isLast: boolean
  * - currentIndex: number
  * - totalCount: number
@@ -87,11 +117,15 @@ export default function ChapterDiffView({
   title,
   onAccept,
   onSkip,
+  acceptLabel,
+  skipLabel,
+  variant = 'split',
   isLast,
   currentIndex,
   totalCount,
 }) {
   const { left, right } = diffParagraphs(originalContent || '', revisedContent || '');
+  const unifiedRows = buildUnifiedDiffRows(originalContent || '', revisedContent || '');
 
   return (
     <div className="h-[600px] overflow-hidden flex flex-col border rounded-lg bg-card shadow-sm">
@@ -112,35 +146,52 @@ export default function ChapterDiffView({
         </span>
       </div>
 
-      {/* Column labels */}
-      <div className="grid grid-cols-2 divide-x border-b shrink-0">
-        <div className="px-4 py-2 text-xs font-medium text-muted-foreground">原文</div>
-        <div className="px-4 py-2 text-xs font-medium text-muted-foreground">修订稿</div>
-      </div>
+      {variant === 'unified' ? (
+        <>
+          <div className="grid grid-cols-[4rem_2rem_1fr] border-b bg-slate-950 px-0 py-0 text-xs font-medium text-slate-200 shrink-0">
+            <div className="border-r border-slate-700 px-2 py-2 text-right text-slate-400">行</div>
+            <div className="px-2 py-2 text-center text-slate-400">±</div>
+            <div className="px-3 py-2">Unified diff</div>
+          </div>
+          <div className="flex-1 overflow-y-auto bg-white">
+            {unifiedRows.map((row, index) => (
+              <UnifiedDiffRow key={`${row.type}-${index}`} row={row} index={index} />
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Column labels */}
+          <div className="grid grid-cols-2 divide-x border-b shrink-0">
+            <div className="px-4 py-2 text-xs font-medium text-muted-foreground">原文</div>
+            <div className="px-4 py-2 text-xs font-medium text-muted-foreground">修订稿</div>
+          </div>
 
-      {/* Diff columns */}
-      <div className="grid grid-cols-2 divide-x flex-1 min-h-0">
-        <div className="overflow-y-auto p-3">
-          {left.map((item, idx) => (
-            <ParagraphBlock key={idx} item={item} />
-          ))}
-        </div>
-        <div className="overflow-y-auto p-3">
-          {right.map((item, idx) => (
-            <ParagraphBlock key={idx} item={item} />
-          ))}
-        </div>
-      </div>
+          {/* Diff columns */}
+          <div className="grid grid-cols-2 divide-x flex-1 min-h-0">
+            <div className="overflow-y-auto p-3">
+              {left.map((item, idx) => (
+                <ParagraphBlock key={idx} item={item} />
+              ))}
+            </div>
+            <div className="overflow-y-auto p-3">
+              {right.map((item, idx) => (
+                <ParagraphBlock key={idx} item={item} />
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Actions */}
       <div className="flex items-center justify-end gap-3 px-4 py-3 border-t bg-muted/20 shrink-0">
         <Button variant="outline" size="sm" onClick={onSkip}>
           <SkipForward className="mr-1.5 h-4 w-4" />
-          跳过此章
+          {skipLabel || '跳过此章'}
         </Button>
         <Button size="sm" onClick={onAccept}>
           <CheckCheck className="mr-1.5 h-4 w-4" />
-          {isLast ? '确认并完成' : '确认修订'}
+          {acceptLabel || (isLast ? '确认并完成' : '确认修订')}
         </Button>
       </div>
     </div>

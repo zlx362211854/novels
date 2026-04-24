@@ -289,6 +289,7 @@ export default function MultiChapterReview() {
           title={draft.title}
           onAccept={() => handleApply(true)}
           onSkip={() => handleApply(false)}
+          variant="unified"
           isLast={currentDraftIndex + 1 >= drafts.length}
           currentIndex={currentDraftIndex}
           totalCount={drafts.length}

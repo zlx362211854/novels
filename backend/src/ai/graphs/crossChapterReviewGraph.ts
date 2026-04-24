@@ -3,7 +3,7 @@ import { HumanMessage } from '@langchain/core/messages';
 import * as crypto from 'crypto';
 import { Chapter, ChapterMemory, MultiChapterReview } from '../../models/sequelize';
 import { createLLM } from '../llmFactory';
-import { parseJsonWithRepair } from '../jsonUtils';
+import { parseJsonWithRepair, strictJsonOutputRules } from '../jsonUtils';
 import { createProgressTracker } from '../progressAdapter';
 import { invokeWithStreaming } from '../streaming';
 import * as aiStatus from '../../services/aiStatusService';
@@ -84,7 +84,8 @@ ${memoryCards}
       "suggestion": "建议修改方向"
     }
   ]
-}`;
+}
+${strictJsonOutputRules()}`;
 }
 
 function buildAnalysisPreface(chapters: any[]): string {
@@ -122,7 +123,13 @@ function buildAnalysisPreface(chapters: any[]): string {
 }
 
 function buildRepairPrompt(raw: string): string {
-  return `请把以下文本修复成合法JSON：${raw}`;
+  return `请把以下文本修复成合法 JSON。
+要求：
+${strictJsonOutputRules()}
+保持原有语义，不要添加新结论。
+
+待修复文本：
+${raw}`;
 }
 
 // Node: load chapters and their memory cards

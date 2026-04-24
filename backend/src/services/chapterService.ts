@@ -4,6 +4,7 @@ import * as aiStatus from './aiStatusService';
 import { chapterReviewGraph } from '../ai/graphs/chapterReviewGraph';
 import { chapterRevisionGraph } from '../ai/graphs/chapterRevisionGraph';
 import { chapterGenerationGraph } from '../ai/graphs/chapterGenerationGraph';
+import { chapterTuneGraph } from '../ai/graphs/chapterTuneGraph';
 
 interface CreateChapterData {
   novelId: number;
@@ -29,13 +30,27 @@ async function ensureChapterNumber(chapter: any): Promise<any> {
   if (!chapter.architecture_id) return chapter;
 
   const arch = await Architecture.findByPk(chapter.architecture_id);
-  if (!arch || !arch.parent_id) return chapter;
+  if (!arch) return chapter;
 
-  const siblings = await Architecture.findAll({
-    where: { parent_id: arch.parent_id, level: 'chapter' },
+  const volumes = await Architecture.findAll({
+    where: { novel_id: arch.novel_id, level: 'volume' },
     order: [['id', 'ASC']]
   });
-  const index = siblings.findIndex((s: any) => s.id === arch.id);
+  const volumeOrder = new Map(volumes.map((volume: any, index: number) => [volume.id, index]));
+
+  const chapterArchitectures = await Architecture.findAll({
+    where: { novel_id: arch.novel_id, level: 'chapter' },
+    order: [['id', 'ASC']]
+  });
+
+  const orderedArchitectures = chapterArchitectures.sort((left: any, right: any) => {
+    const leftOrder = volumeOrder.get(left.parent_id) ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = volumeOrder.get(right.parent_id) ?? Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    return left.id - right.id;
+  });
+
+  const index = orderedArchitectures.findIndex((item: any) => item.id === arch.id);
   const correctNumber = index >= 0 ? index + 1 : chapter.chapter_number;
 
   if (chapter.chapter_number !== correctNumber) {
@@ -143,7 +158,7 @@ async function restoreVersion(chapterId: number | string, versionNumber: number)
   return update(chapterId, { content: version.content });
 }
 
-async function generate(chapterId: number | string, signal?: AbortSignal): Promise<any> {
+async function generate(chapterId: number | string, signal?: AbortSignal, userPrompt: string = ''): Promise<any> {
   const taskId = `generate-${chapterId}-${Date.now()}`;
 
   try {
@@ -151,6 +166,7 @@ async function generate(chapterId: number | string, signal?: AbortSignal): Promi
       {
         chapterId: Number(chapterId),
         signal,
+        userPrompt,
         taskId,
         chapter: null,
         novel: null,
@@ -261,6 +277,48 @@ async function reviseChapter(
   }
 }
 
+async function tuneChapter(
+  chapterId: number | string,
+  userPrompt: string,
+  signal?: AbortSignal
+): Promise<any> {
+  const normalizedPrompt = typeof userPrompt === 'string' ? userPrompt.trim() : '';
+  if (!normalizedPrompt) {
+    throw new Error('微调要求不能为空');
+  }
+
+  const taskId = `tune-${chapterId}-${Date.now()}`;
+
+  try {
+    const result = await chapterTuneGraph.invoke(
+      {
+        chapterId: Number(chapterId),
+        userPrompt: normalizedPrompt,
+        signal,
+        taskId,
+        chapter: null,
+        novel: null,
+        reviewContext: null,
+        tuneResult: null,
+      },
+      { signal }
+    );
+
+    return {
+      chapterId: Number(chapterId),
+      chapterTitle: result.chapter?.title || null,
+      chapterNumber: result.chapter?.chapter_number || null,
+      originalContent: result.chapter?.content || '',
+      revisedContent: result.tuneResult.revisedContent,
+      summary: result.tuneResult.summary,
+      changedAreas: result.tuneResult.changedAreas,
+    };
+  } catch (err) {
+    aiStatus.error(taskId, (err as Error).message);
+    throw err;
+  }
+}
+
 function serializeChapter(chapter: any): any {
   if (!chapter) return chapter;
 
@@ -290,5 +348,6 @@ export {
   restoreVersion,
   generate,
   reviewChapter,
-  reviseChapter
+  reviseChapter,
+  tuneChapter
 };

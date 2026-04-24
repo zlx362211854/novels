@@ -32,6 +32,30 @@ router.post('/:id/revise', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/:id/tune', async (req: Request, res: Response) => {
+  const ac = new AbortController();
+  setMaxListeners(30, ac.signal);
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      console.log('[abort] 客户端断开 → chapter/tune 已中止');
+      ac.abort();
+    }
+  });
+  try {
+    (req as any).setTimeout(0);
+    const { userPrompt } = req.body;
+    const result = await chapterService.tuneChapter(
+      String(req.params.id),
+      typeof userPrompt === 'string' ? userPrompt : '',
+      ac.signal
+    );
+    res.json(result);
+  } catch (error) {
+    if (ac.signal.aborted) return;
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const chapter = await chapterService.findById(String(req.params.id));
@@ -127,7 +151,12 @@ router.post('/:id/generate', async (req: Request, res: Response) => {
   });
   try {
     (req as any).setTimeout(0);
-    const result = await chapterService.generate(String(req.params.id), ac.signal);
+    const { userPrompt } = req.body;
+    const result = await chapterService.generate(
+      String(req.params.id),
+      ac.signal,
+      typeof userPrompt === 'string' ? userPrompt : ''
+    );
     res.json(result);
   } catch (error) {
     if (ac.signal.aborted) return;

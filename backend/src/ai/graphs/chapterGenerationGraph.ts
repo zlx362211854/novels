@@ -19,6 +19,7 @@ const ChapterGenerationState = Annotation.Root({
   // Inputs
   chapterId: Annotation<number>,
   signal: Annotation<AbortSignal | undefined>,
+  userPrompt: Annotation<string | undefined>,
   taskId: Annotation<string>,
 
   // Loaded context
@@ -48,13 +49,29 @@ async function ensureChapterNumber(chapter: any): Promise<any> {
   if (!chapter.architecture_id) return chapter;
 
   const arch = await Architecture.findByPk(chapter.architecture_id);
-  if (!arch || !arch.parent_id) return chapter;
+  if (!arch) return chapter;
 
-  const siblings = await Architecture.findAll({
-    where: { parent_id: arch.parent_id, level: "chapter" },
+  const volumes = await Architecture.findAll({
+    where: { novel_id: arch.novel_id, level: "volume" },
     order: [["id", "ASC"]],
   });
-  const index = siblings.findIndex((s: any) => s.id === arch.id);
+  const volumeOrder = new Map(
+    volumes.map((volume: any, index: number) => [volume.id, index]),
+  );
+
+  const chapterArchitectures = await Architecture.findAll({
+    where: { novel_id: arch.novel_id, level: "chapter" },
+    order: [["id", "ASC"]],
+  });
+
+  const orderedArchitectures = chapterArchitectures.sort((left: any, right: any) => {
+    const leftOrder = volumeOrder.get(left.parent_id) ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = volumeOrder.get(right.parent_id) ?? Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    return left.id - right.id;
+  });
+
+  const index = orderedArchitectures.findIndex((item: any) => item.id === arch.id);
   const correctNumber = index >= 0 ? index + 1 : chapter.chapter_number;
 
   if (chapter.chapter_number !== correctNumber) {
@@ -146,12 +163,13 @@ async function generateContentNode(state: typeof ChapterGenerationState.State) {
     fullArch,
     prevChapterContent,
     volumeChapterArchs,
+    state.userPrompt || "",
   );
 
   const llm = await createLLM({
     temperature: 0.8,
     maxTokens: 9000,
-    provider: "deepseek",
+    provider: 'deepseek'
   });
   let generatedContent = await withRetry(
     async () => {

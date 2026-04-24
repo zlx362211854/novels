@@ -4,13 +4,15 @@ interface CreateNovelData {
   title: string;
   description?: string;
   genre?: string;
+  publishConfig?: any;
 }
 
 async function create(data: CreateNovelData): Promise<Novel> {
   const novel = await Novel.create({
     title: data.title,
     description: data.description || null,
-    genre: data.genre || null
+    genre: data.genre || null,
+    publish_config: data.publishConfig ? JSON.stringify(data.publishConfig) : null
   });
   return novel;
 }
@@ -34,6 +36,7 @@ async function update(id: string | number, data: Partial<CreateNovelData>): Prom
   if (data.title !== undefined) novel.title = data.title;
   if (data.description !== undefined) novel.description = data.description;
   if (data.genre !== undefined) novel.genre = data.genre;
+  if (data.publishConfig !== undefined) novel.publish_config = JSON.stringify(data.publishConfig || {});
 
   await novel.save();
   return novel;

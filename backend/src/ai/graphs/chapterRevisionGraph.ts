@@ -6,6 +6,7 @@ import * as chapterMemoryService from '../../services/chapterMemoryService';
 import { createLLM } from '../llmFactory';
 import { createProgressTracker } from '../progressAdapter';
 import { invokeWithStreaming } from '../streaming';
+import { strictJsonOutputRules } from '../jsonUtils';
 
 const STEPS = ['构建上下文', '修订章节', '保存结果', '提取记忆'];
 
@@ -32,12 +33,48 @@ function formatArchitecture(architecture: any): string {
   return `层级: ${architecture.level}\n标题: ${architecture.title}\n情节: ${architecture.plot_outline || ''}\n`;
 }
 
+function formatRelevantEvidence(reviewContext: any = {}): string {
+  const relevantMemories = Array.isArray(reviewContext.relevantMemories) ? reviewContext.relevantMemories : [];
+  const sourceExcerpts = Array.isArray(reviewContext.sourceExcerpts) ? reviewContext.sourceExcerpts : [];
+  const previousChapterContent = reviewContext.previousChapterContent || '';
+
+  const sections: string[] = [];
+
+  if (previousChapterContent) {
+    const previousEnding = previousChapterContent
+      .split(/\n+/)
+      .map((part: string) => part.trim())
+      .filter(Boolean)
+      .slice(-2)
+      .join('\n\n');
+    if (previousEnding) {
+      sections.push(`### 上一章结尾\n${previousEnding}`);
+    }
+  }
+
+  relevantMemories.slice(0, 6).forEach((memory: any, index: number) => {
+    const facts = Array.isArray(memory.facts)
+      ? memory.facts.map((fact: any) => `- ${fact.subject || ''} ${fact.predicate || ''} ${fact.object || ''}`.trim()).join('\n')
+      : '';
+    const excerpt = sourceExcerpts[index]?.excerpt || '';
+    sections.push([
+      `### 第${memory.chapter_number || sourceExcerpts[index]?.chapterNumber || '?'}章`,
+      memory.summary ? `概要：${memory.summary}` : '',
+      facts ? `事实：\n${facts}` : '',
+      excerpt ? `证据段落：${excerpt}` : '',
+    ].filter(Boolean).join('\n'));
+  });
+
+  return sections.length ? sections.join('\n\n') : '无';
+}
+
 function buildRevisionPrompt(
   chapter: any,
   novel: any,
   architecture: any,
   reviewResult: any,
-  userPrompt: string = ''
+  userPrompt: string = '',
+  reviewContext: any = {}
 ): string {
   const originalLength = (chapter.content || '').length;
   return `你是一位专业的网络小说编辑，请根据审阅意见修订章节。
@@ -58,6 +95,9 @@ ${formatArchitecture(architecture)}
 ## 审阅意见
 ${JSON.stringify(reviewResult.issues || [], null, 2)}
 
+## 相关历史证据
+${formatRelevantEvidence(reviewContext)}
+
 ## 用户补充要求
 ${userPrompt?.trim() || '无'}
 
@@ -67,7 +107,19 @@ ${userPrompt?.trim() || '无'}
 修订后的正文篇幅要保持在 5000 字左右，尽量接近原文体量，不要为了修订问题而大幅压缩剧情、删减场景或改写成摘要版。
 除非审阅意见明确要求删除重复内容或明显无效内容，否则不要随意删段；优先局部改写、补充衔接、修正细节，而不是整体缩写。
 
-请返回JSON格式：{ "revisedContent": "string", "summary": "string", "appliedIssues": ["string"] }`;
+## 允许修改范围
+- 与审阅意见直接相关的句子、段落、承接描写、物品/人物状态描述
+- 为修复硬逻辑问题所需的少量过渡句、补充动作和因果说明
+- 与用户补充要求一致且不破坏主线的局部表达
+
+## 禁止修改范围
+- 不要改变本章核心事件顺序和结局，除非审阅意见明确指出该处有硬逻辑错误
+- 不要新增主线人物、世界规则、关键物品或大段新剧情
+- 不要把完整章节改写成摘要，不要删除无关但正确的场景
+- 不要覆盖历史证据中已经成立的事实
+
+请返回JSON格式：{ "revisedContent": "string", "summary": "string", "appliedIssues": ["string"] }
+${strictJsonOutputRules()}`;
 }
 
 // Node: load and validate context
@@ -112,13 +164,14 @@ async function runRevisionNode(state: typeof ChapterRevisionState.State) {
     tracker.step(1);
   }
 
-  const llm = await createLLM({ temperature: 0.7, maxTokens: 40000, provider: 'minimax' });
+  const llm = await createLLM({ temperature: 0.7, maxTokens: 40000, provider: 'deepseek' });
   const prompt = buildRevisionPrompt(
     state.chapter,
     state.novel,
     state.reviewContext?.architecture,
     state.reviewResult,
-    state.userPrompt
+    state.userPrompt,
+    state.reviewContext
   );
 
   const content = await invokeWithStreaming(
@@ -214,4 +267,4 @@ const graph = new StateGraph(ChapterRevisionState)
   .addEdge('finalize', END)
   .compile();
 
-export { graph as chapterRevisionGraph, ChapterRevisionState, buildRevisionPrompt };
+export { graph as chapterRevisionGraph, ChapterRevisionState, buildRevisionPrompt, formatRelevantEvidence };
