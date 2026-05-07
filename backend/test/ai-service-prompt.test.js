@@ -1,6 +1,16 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+require('ts-node').register({
+  project: require('node:path').join(__dirname, '..', 'tsconfig.json'),
+  transpileOnly: true,
+  compilerOptions: {
+    module: 'commonjs',
+    moduleResolution: 'node',
+    ignoreDeprecations: '6.0',
+  },
+});
+
 const {
   buildChapterPrompt,
   formatPreviousChapterMemory,
@@ -32,8 +42,101 @@ test('buildChapterPrompt has consistent poetry and character boundary rules', ()
 
   assert.ok(!prompt.includes('每章须在恰当处插入1-2处诗词'));
   assert.ok(!prompt.includes('架构未提及的人物可出现推动情节'));
+  assert.ok(!prompt.includes('## 金庸武侠写作风格指南（核心，贯穿全文）'));
   assert.match(prompt, /诗词非必须/);
   assert.match(prompt, /不得新增本章架构未授权的主要人物/);
+  assert.match(prompt, /## 执行优先级/);
+  assert.match(prompt, /## 风格与字数/);
+});
+
+test('buildChapterPrompt includes RAG evidence blocks when retrieval context is present', () => {
+  const prompt = buildChapterPrompt(
+    novel,
+    chapterArch,
+    volumeArch,
+    fullArch,
+    null,
+    [chapterArch],
+    '强调密室压迫感',
+    {
+      storyBibleEntries: [
+        {
+          type: 'world_rule',
+          title: '玄铁令门规',
+          content: '玄铁令不可离身，否则视为叛门。',
+          score: 0.95,
+        },
+      ],
+      retrievedChunks: [
+        {
+          chapterNumber: 2,
+          text: '沈夜将玄铁令收入袖底，未曾离身半步。',
+          score: 0.91,
+        },
+      ],
+      relevantMemories: [
+        {
+          chapter_number: 2,
+          facts: [{ subject: '沈夜', predicate: '持有', object: '玄铁令' }],
+          open_threads: [{ thread: '叛门疑云未解' }],
+        },
+      ],
+    }
+  );
+
+  assert.match(prompt, /故事圣经硬约束/);
+  assert.match(prompt, /玄铁令不可离身/);
+  assert.match(prompt, /历史相关记忆/);
+  assert.match(prompt, /沈夜 持有 玄铁令/);
+  assert.match(prompt, /历史原文证据/);
+  assert.match(prompt, /沈夜将玄铁令收入袖底/);
+  assert.match(prompt, /1\. 先严格遵守/);
+});
+
+test('buildChapterPrompt compresses far-context into summaries instead of large repeated blocks', () => {
+  const prompt = buildChapterPrompt(
+    novel,
+    chapterArch,
+    {
+      title: '风雪卷',
+      plot_outline: '林秋追查青铜钥匙，逐步接近旧案真相。',
+      characters: JSON.stringify([{ name: '林秋' }, { name: '沈夜' }]),
+      world_setting: JSON.stringify({ region: '北地', rule: '帮派林立' }),
+      emotional_tone: '压抑中带决绝',
+    },
+    fullArch,
+    null,
+    [
+      chapterArch,
+      { id: 13, title: '夜雪归途', plot_outline: '林秋回城验线索。' },
+    ]
+  );
+
+  assert.match(prompt, /全本远场规划/);
+  assert.match(prompt, /本卷远场规划/);
+  assert.match(prompt, /本卷章节顺序提示/);
+  assert.ok(!prompt.includes('### 人物设定\n['));
+  assert.ok(!prompt.includes('### 世界观\n{'));
+});
+
+test('buildChapterPrompt skips RAG blocks when retrieval context is empty', () => {
+  const prompt = buildChapterPrompt(
+    novel,
+    chapterArch,
+    volumeArch,
+    fullArch,
+    null,
+    [chapterArch],
+    '',
+    {
+      storyBibleEntries: [],
+      retrievedChunks: [],
+      relevantMemories: [],
+    }
+  );
+
+  assert.ok(!prompt.includes('## 故事圣经硬约束'));
+  assert.ok(!prompt.includes('## 历史原文证据'));
 });
 
 test('formatPreviousChapterMemory exposes saved chapter memory fields for generation context', () => {

@@ -5,6 +5,7 @@ export interface AIConfig {
   aiModel: string;
   zhipuApiKey?: string;
   zhipuApiUrl?: string;
+  zhipuEmbeddingModel?: string;
   deepseekApiKey?: string;
   deepseekApiUrl?: string;
   minimaxApiKey?: string;
@@ -33,7 +34,8 @@ export async function getAIConfig(): Promise<AIConfig> {
   return {
     aiModel: configMap.aiModel || process.env.DEFAULT_AI_MODEL || 'minimax',
     zhipuApiKey: configMap.zhipuApiKey || process.env.ZHIPU_API_KEY,
-    zhipuApiUrl: process.env.ZHIPU_API_URL,
+    zhipuApiUrl: configMap.zhipuApiUrl || process.env.ZHIPU_API_URL || 'https://open.bigmodel.cn/api/paas/v4',
+    zhipuEmbeddingModel: configMap.zhipuEmbeddingModel || process.env.ZHIPU_EMBEDDING_MODEL || 'embedding-3',
     deepseekApiKey: configMap.deepseekApiKey || process.env.DEEPSEEK_API_KEY,
     deepseekApiUrl: process.env.DEEPSEEK_API_URL,
     minimaxApiKey: configMap.minimaxApiKey || process.env.MINIMAX_API_KEY,

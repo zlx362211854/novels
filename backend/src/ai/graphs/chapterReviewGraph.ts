@@ -3,7 +3,7 @@ import { HumanMessage } from '@langchain/core/messages';
 import { Op } from 'sequelize';
 import { Chapter, Novel, Architecture } from '../../models/sequelize';
 import * as chapterMemoryService from '../../services/chapterMemoryService';
-import * as reviewContextService from '../../services/reviewContextService';
+import * as ragService from '../../services/ragService';
 import { createLLM, getAIConfig } from '../llmFactory';
 import { parseJsonWithRepair, strictJsonOutputRules } from '../jsonUtils';
 import * as aiStatus from '../../services/aiStatusService';
@@ -100,12 +100,28 @@ function buildHistoricalKeyEventsSection(relevantMemories: any[], previousChapte
     return `### 第${memory.chapter_number}章\n${events}`;
   }).join('\n');
 }
+
+function buildStoryBibleEvidenceSection(storyBibleEntries: any[] = []): string {
+  if (!Array.isArray(storyBibleEntries) || storyBibleEntries.length === 0) return '无';
+  return storyBibleEntries.slice(0, 4).map((entry: any) => {
+    return `### ${entry.title || '未命名条目'}\n${entry.content || ''}`;
+  }).join('\n');
+}
+
+function buildRetrievedChunkSection(retrievedChunks: any[] = []): string {
+  if (!Array.isArray(retrievedChunks) || retrievedChunks.length === 0) return '无';
+  return retrievedChunks.slice(0, 4).map((chunk: any) => {
+    return `### 第${chunk.chapterNumber || '?'}章\n${chunk.text || ''}`;
+  }).join('\n');
+}
 function buildContinuityPrompt(state: typeof ChapterReviewState.State): string {
   const previousChapter = state.previousChapter;
   const previousMemory = state.reviewContext?.previousChapterMemory;
   const currentMemory = state.reviewContext?.currentMemory ?? state.currentMemory;
   const relevantMemories = Array.isArray(state.reviewContext?.relevantMemories) ? state.reviewContext.relevantMemories : [];
   const sourceExcerpts = Array.isArray(state.reviewContext?.sourceExcerpts) ? state.reviewContext.sourceExcerpts : [];
+  const storyBibleEntries = Array.isArray(state.reviewContext?.storyBibleEntries) ? state.reviewContext.storyBibleEntries : [];
+  const retrievedChunks = Array.isArray(state.reviewContext?.retrievedChunks) ? state.reviewContext.retrievedChunks : [];
   const previousEnding = (state.reviewContext?.previousChapterContent || '')
     .split(/\n+/)
     .map((part: string) => part.trim())
@@ -152,6 +168,12 @@ ${buildHistoricalKeyEventsSection(relevantMemories, state.reviewContext?.previou
 
 ## 相关历史参考段落
 ${relevantMemories.map((memory: any, index: number) => `### 第${memory.chapter_number}章\n${sourceExcerpts[index]?.excerpt || ''}`).join('\n') || '无'}
+
+## 故事圣经硬约束
+${buildStoryBibleEvidenceSection(storyBibleEntries)}
+
+## 召回历史正文证据
+${buildRetrievedChunkSection(retrievedChunks)}
 
 请重点判断：
 1. 当前章开头是否把上一章已经完成的事件又重复写了一遍
@@ -236,6 +258,8 @@ export function buildReviewPrompt(chapter: any, novel: any, architecture: any, c
   const strictnessGuide = config.reviewStrictness === 'strict' ? '请严格审核，任何不一致都需要指出' : '请宽松审核，只指出明显的不一致问题';
   const relevantMemories = Array.isArray(reviewContext.relevantMemories) ? reviewContext.relevantMemories : [];
   const sourceExcerpts = Array.isArray(reviewContext.sourceExcerpts) ? reviewContext.sourceExcerpts : [];
+  const storyBibleEntries = Array.isArray(reviewContext.storyBibleEntries) ? reviewContext.storyBibleEntries : [];
+  const retrievedChunks = Array.isArray(reviewContext.retrievedChunks) ? reviewContext.retrievedChunks : [];
   const prevContent: string = reviewContext.previousChapterContent || '';
   const currentContent: string = chapter.content || '';
   const currentKeyEvents = formatKeyEvents(reviewContext.currentMemory);
@@ -290,6 +314,10 @@ ${historicalKeyEvents}
 ## 当前章节记忆卡
 ${formatMemoryCard(reviewContext.currentMemory)}
 ${relevantMemories.map((m: any, i: number) => `### 相关记忆 ${i + 1} (第${m.chapter_number}章)\n${formatMemoryCard(m)}\n### 参考段落 ${i + 1}\n${sourceExcerpts[i]?.excerpt || ''}`).join('\n')}
+## 故事圣经硬约束
+${buildStoryBibleEvidenceSection(storyBibleEntries)}
+## 召回历史正文证据
+${buildRetrievedChunkSection(retrievedChunks)}
 ${formatVolumeChapterArchs(volumeChapterArchs, chapter.id, relevantMemories, allMemories)}
 ## 审核要求
 请检查包括但不限于：1.时间线错误 2.人物状态矛盾 3.情节因果错乱 4.数字不一致 5.场景逻辑错误 6.角色称呼错误（仅依据上方"角色列表"中的名字判断，列表之外的名字、别名、化名一律不得自行推断，必须在正文中有明确原文依据才能报告）7.物品/功法/技能获取时机错误 8.章节承接错误（对比上方"章节承接强对比"区，必须检查：①人物伤势/体力/位置回退 ②人物关系/认知状态回退 ③已出场角色被重复当作初次登场介绍 ④场景/时间无故重复或回退）。
@@ -360,11 +388,14 @@ async function buildContextNode(state: typeof ChapterReviewState.State) {
     aiStatus.step(state.taskId, 1, '逻辑审阅');
   }
 
-  const reviewContext = await reviewContextService.buildReviewContext(Number(state.chapterId), state.signal, {
-    chapter: state.chapter,
-    novel: state.novel,
-    architecture: state.architecture,
-    currentMemory: state.currentMemory,
+  const reviewContext = await ragService.buildRetrievalContext(Number(state.chapterId), {
+    signal: state.signal,
+    preloaded: {
+      chapter: state.chapter,
+      novel: state.novel,
+      architecture: state.architecture,
+      currentMemory: state.currentMemory,
+    },
   });
 
   let volumeChapterArchs: any[] = [];

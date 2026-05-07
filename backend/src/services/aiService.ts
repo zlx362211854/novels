@@ -61,6 +61,220 @@ function formatPreviousChapterMemory(memory: any): string {
   return sections.filter(Boolean).join('\n\n');
 }
 
+function formatRetrievalFacts(facts: any[] = []): string[] {
+  if (!Array.isArray(facts) || facts.length === 0) return [];
+  return facts
+    .slice(0, 8)
+    .map((fact: any) => `- ${fact?.subject || ''} ${fact?.predicate || ''} ${fact?.object || ''}`.trim())
+    .filter((line: string) => line !== '-');
+}
+
+function formatRetrievalThreads(threads: any[] = []): string[] {
+  if (!Array.isArray(threads) || threads.length === 0) return [];
+  return threads
+    .slice(0, 6)
+    .map((thread: any) => {
+      if (typeof thread === 'string') return `- ${thread}`;
+      if (thread?.thread) return `- ${thread.thread}`;
+      return '';
+    })
+    .filter(Boolean);
+}
+
+function formatRelevantMemories(memories: any[] = []): string {
+  if (!Array.isArray(memories) || memories.length === 0) return '';
+
+  const blocks = memories.slice(0, 4).map((memory: any, index: number) => {
+    const chapterLabel = memory?.chapter_number ? `第${memory.chapter_number}章` : `历史记忆${index + 1}`;
+    const lines = [`### ${chapterLabel}`];
+    const facts = formatRetrievalFacts(memory?.facts || []);
+    const threads = formatRetrievalThreads(memory?.open_threads || []);
+    if (facts.length > 0) {
+      lines.push('关键事实：');
+      lines.push(...facts);
+    }
+    if (threads.length > 0) {
+      lines.push('未解线索：');
+      lines.push(...threads);
+    }
+    return lines.join('\n');
+  });
+
+  return blocks.filter(Boolean).join('\n\n');
+}
+
+function formatRetrievedChunks(chunks: any[] = []): string {
+  if (!Array.isArray(chunks) || chunks.length === 0) return '';
+
+  return chunks
+    .slice(0, 4)
+    .map((chunk: any, index: number) => {
+      const chapterLabel = chunk?.chapterNumber ? `第${chunk.chapterNumber}章` : `历史片段${index + 1}`;
+      const score = Number.isFinite(chunk?.score) ? `（相关度 ${chunk.score.toFixed(2)}）` : '';
+      return `### ${chapterLabel}${score}\n${chunk?.text || ''}`.trim();
+    })
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function formatStoryBibleEntries(entries: any[] = []): string {
+  if (!Array.isArray(entries) || entries.length === 0) return '';
+
+  return entries
+    .slice(0, 6)
+    .map((entry: any, index: number) => {
+      const title = entry?.title || `故事圣经条目${index + 1}`;
+      const type = entry?.type ? `【${entry.type}】` : '';
+      const priority = Number.isFinite(entry?.priority) ? `优先级 ${entry.priority}` : '';
+      const score = Number.isFinite(entry?.score) ? `相关度 ${entry.score.toFixed(2)}` : '';
+      const meta = [type, priority, score].filter(Boolean).join(' ');
+      return `### ${title}${meta ? ` ${meta}` : ''}\n${entry?.content || ''}`.trim();
+    })
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function buildRetrievalContextSection(retrievalContext: any = {}): string {
+  const storyBibleSection = formatStoryBibleEntries(retrievalContext.storyBibleEntries || []);
+  const memoriesSection = formatRelevantMemories(retrievalContext.relevantMemories || []);
+  const chunksSection = formatRetrievedChunks(retrievalContext.retrievedChunks || []);
+
+  const blocks: string[] = [];
+
+  if (storyBibleSection) {
+    blocks.push(`## 故事圣经硬约束（高优先级，禁止违背）\n${storyBibleSection}`);
+  }
+
+  if (memoriesSection) {
+    blocks.push(`## 历史相关记忆（用于保持人物、道具、关系和伏笔一致）\n${memoriesSection}`);
+  }
+
+  if (chunksSection) {
+    blocks.push(`## 历史原文证据（仅用于保持一致性，不得提前扩写未发生情节）\n${chunksSection}`);
+  }
+
+  if (blocks.length === 0) {
+    return '';
+  }
+
+  return `\n${blocks.join('\n\n')}\n`;
+}
+
+function extractCharacterNames(value: any): string[] {
+  const parsed = parseJsonField(value, value);
+  if (Array.isArray(parsed)) {
+    return parsed
+      .map((item: any) => {
+        if (typeof item === 'string') return item;
+        return item?.name || '';
+      })
+      .filter(Boolean);
+  }
+
+  if (parsed && typeof parsed === 'object') {
+    return Object.values(parsed)
+      .map((item: any) => {
+        if (typeof item === 'string') return item;
+        return item?.name || '';
+      })
+      .filter(Boolean);
+  }
+
+  if (typeof parsed === 'string' && parsed.trim()) {
+    return [parsed.trim()];
+  }
+
+  return [];
+}
+
+function compactStructuredValue(value: any, maxLength = 220): string {
+  const parsed = parseJsonField(value, value);
+  if (!parsed) return '';
+
+  let text = '';
+  if (typeof parsed === 'string') {
+    text = parsed.trim();
+  } else {
+    try {
+      text = JSON.stringify(parsed);
+    } catch {
+      text = String(parsed);
+    }
+  }
+
+  if (!text) return '';
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function buildArchitectureSummary(title: string, architecture: any, options: { includeCharacters?: boolean; includeWorld?: boolean } = {}): string {
+  if (!architecture) return '';
+
+  const lines = [`## ${title}`];
+  if (architecture.title) {
+    lines.push(`标题：${architecture.title}`);
+  }
+  if (architecture.plot_outline) {
+    lines.push(`情节摘要：${architecture.plot_outline}`);
+  }
+  if (architecture.emotional_tone) {
+    lines.push(`情感基调：${architecture.emotional_tone}`);
+  }
+  if (options.includeCharacters) {
+    const names = extractCharacterNames(architecture.characters);
+    if (names.length > 0) {
+      lines.push(`关键角色：${names.slice(0, 10).join('、')}`);
+    }
+  }
+  if (options.includeWorld) {
+    const world = compactStructuredValue(architecture.world_setting, 180);
+    if (world) {
+      lines.push(`世界设定摘要：${world}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function buildVolumeChapterOutlineSection(volumeChapterArchs: any[] = [], currentChapterId?: number): string {
+  if (!Array.isArray(volumeChapterArchs) || volumeChapterArchs.length === 0) {
+    return '';
+  }
+
+  const lines = [
+    '## 本卷章节顺序提示（仅用于把握节奏，不得提前写后续剧情）',
+  ];
+
+  volumeChapterArchs.slice(0, 12).forEach((arch, index) => {
+    const marker = arch.id === currentChapterId ? '【当前章】' : `【卷内第${index + 1}章】`;
+    const plot = arch.plot_outline ? `：${arch.plot_outline}` : '';
+    lines.push(`${marker} ${arch.title || '未命名'}${plot}`);
+  });
+
+  return lines.join('\n');
+}
+
+function buildPreviousChapterSection(prevChapterContent: any): string {
+  if (!prevChapterContent) return '';
+
+  const memorySection = formatPreviousChapterMemory(prevChapterContent.memory);
+  const lines = [
+    '## 上一章承接（高优先级）',
+    `章节：${prevChapterContent.title}（第${prevChapterContent.chapterNumber || '?'}章）`,
+    '结尾原文：',
+    prevChapterContent.endingContent,
+  ];
+
+  if (memorySection) {
+    lines.push(memorySection);
+  }
+
+  lines.push(
+    '承接要求：如果上一章结尾仍处于动作、对话或场景连续状态，本章开头必须严格衔接；若上一章已自然收束，方可合理切换时空与场景。'
+  );
+
+  return lines.join('\n');
+}
+
 async function getPreviousChapterContent(currentArchId: number, parentId: number | null): Promise<any> {
   const currentArch = await Architecture.findByPk(currentArchId);
   if (!currentArch) return null;
@@ -132,248 +346,92 @@ function buildChapterPrompt(
   fullArch: any,
   prevChapterContent: any,
   volumeChapterArchs: any[] = [],
-  userPrompt: string = ''
+  userPrompt: string = '',
+  retrievalContext: any = {}
 ): string {
-  let context = `## 小说信息
-标题：${novel.title}
-类型：${novel.genre || '未指定'}
-行文风格: 金庸武侠笔法,古风
-`;
+  const novelInfoSection = [
+    '## 小说信息',
+    `标题：${novel.title}`,
+    `类型：${novel.genre || '未指定'}`,
+  ].join('\n');
 
-  let fullArchContext = '';
-  if (fullArch) {
-    fullArchContext = `\n## 全本架构（方向参考）\n`;
-    fullArchContext += `⚠️ 以下全本情节大纲仅供理解故事走向、主题脉络和埋设伏笔，**不得据此提前写出尚未到达的具体事件或人物登场**。\n`;
-    if (fullArch.plot_outline) fullArchContext += `\n### 故事走向\n${fullArch.plot_outline}\n`;
-    if (fullArch.characters) {
-      try {
-        const chars = JSON.parse(fullArch.characters);
-        fullArchContext += `\n### 人物设定\n${JSON.stringify(chars, null, 2)}\n`;
-      } catch {
-        fullArchContext += `\n### 人物设定\n${fullArch.characters}\n`;
-      }
-    }
-    if (fullArch.world_setting) {
-      try {
-        const world = JSON.parse(fullArch.world_setting);
-        fullArchContext += `\n### 世界观\n${JSON.stringify(world, null, 2)}\n`;
-      } catch {
-        fullArchContext += `\n### 世界观\n${fullArch.world_setting}\n`;
-      }
-    }
-    if (fullArch.emotional_tone) {
-      fullArchContext += `\n### 情感基调\n${fullArch.emotional_tone}\n`;
-    }
-  }
-
-  if (fullArch) {
-    context += fullArchContext;
-  }
-
-  if (volumeArch) {
-    context += `\n## 卷架构：${volumeArch.title}\n`;
-    context += `⚠️ 以下卷情节大纲仅供理解本卷走向，不得据此提前写出本章架构中未描述的事件。\n`;
-    if (volumeArch.plot_outline) context += `本卷走向：${volumeArch.plot_outline}\n`;
-    if (volumeArch.characters) {
-      try {
-        const chars = JSON.parse(volumeArch.characters);
-        context += `人物设定：${JSON.stringify(chars, null, 2)}\n`;
-      } catch {
-        context += `人物设定：${volumeArch.characters}\n`;
-      }
-    }
-    if (volumeArch.world_setting) {
-      try {
-        const world = JSON.parse(volumeArch.world_setting);
-        context += `世界观：${JSON.stringify(world, null, 2)}\n`;
-      } catch {
-        context += `世界观：${volumeArch.world_setting}\n`;
-      }
-    }
-    if (volumeArch.emotional_tone) {
-      context += `情感基调：${volumeArch.emotional_tone}\n`;
-    }
-  }
-
-  if (volumeChapterArchs.length > 0) {
-    context += `\n## 本卷章节架构（按顺序）\n`;
-    context += `⚠️ 以下是本卷所有章节的架构信息，请了解整体脉络和角色出场顺序，但只撰写「本章架构」中指定的内容，不得提前写出后续章节的情节。这里展示的是卷内顺序提示，不是正文的全书章号。\n`;
-    volumeChapterArchs.forEach((arch, index) => {
-      const isCurrentChapter = arch.id === chapterArch.id;
-      const marker = isCurrentChapter ? '【当前章节】' : `【同卷顺位${index + 1}】`;
-      context += `\n${marker} ${arch.title || '未命名'}\n`;
-      if (arch.plot_outline) {
-        context += `  情节：${arch.plot_outline}\n`;
-      }
-      if (arch.characters) {
-        try {
-          const chars = typeof arch.characters === 'string' ? JSON.parse(arch.characters) : arch.characters;
-          const charList = Array.isArray(chars) ? chars : Object.values(chars);
-          const charNames = charList.map((c: any) => typeof c === 'string' ? c : (c.name || '')).filter(Boolean);
-          if (charNames.length > 0) {
-            context += `  角色：${charNames.join('、')}\n`;
-          }
-        } catch { }
-      }
-    });
-  }
-
-  let prevChapterInfo = '';
-  if (prevChapterContent) {
-    const memorySection = formatPreviousChapterMemory(prevChapterContent.memory);
-
-    prevChapterInfo = `
-## 上一章结尾（参考）
-章节：${prevChapterContent.title}（第${prevChapterContent.chapterNumber || '?'}章）
----
-${prevChapterContent.endingContent}
----
-${memorySection}
-**衔接说明：**
-- 如果上一章结尾是动作/对话/场景的中断点（如：走进房间、战斗中、对话进行中），本章开头需要严格衔接，保持空间、时间、人物状态的连续性
-- 如果上一章结尾是情节的自然收束（如：事件结束、场景转换提示），本章可以根据架构内容概括灵活安排时间跳跃或场景切换
-`;
-  }
-
-  let chapterInfo = `## 本章架构
-标题：${chapterArch.title}`;
+  let chapterInfo = `## 本章架构（最高优先级）\n标题：${chapterArch.title}`;
   if (chapterArch.plot_outline) {
     chapterInfo += `\n内容概括：${chapterArch.plot_outline}`;
   }
-  if (chapterArch.world_setting) {
-    try {
-      const world = JSON.parse(chapterArch.world_setting);
-      chapterInfo += `\n世界观设定：${JSON.stringify(world, null, 2)}`;
-    } catch {
-      chapterInfo += `\n世界观设定：${chapterArch.world_setting}`;
-    }
+  const chapterCharacters = extractCharacterNames(chapterArch.characters);
+  if (chapterCharacters.length > 0) {
+    chapterInfo += `\n本章关键角色：${chapterCharacters.join('、')}`;
+  }
+  const chapterWorld = compactStructuredValue(chapterArch.world_setting, 180);
+  if (chapterWorld) {
+    chapterInfo += `\n本章世界设定：${chapterWorld}`;
   }
   if (chapterArch.emotional_tone) {
-    chapterInfo += `\n情感基调：${chapterArch.emotional_tone}`;
+    chapterInfo += `\n本章情感基调：${chapterArch.emotional_tone}`;
   }
 
+  const prevChapterSection = buildPreviousChapterSection(prevChapterContent);
   const normalizedUserPrompt = typeof userPrompt === 'string' ? userPrompt.trim() : '';
   const userPromptSection = normalizedUserPrompt
-    ? `\n## 用户补充要求（优先遵守）\n${normalizedUserPrompt}\n`
+    ? `## 用户补充要求（高优先级）\n${normalizedUserPrompt}`
     : '';
+  const retrievalContextSection = buildRetrievalContextSection(retrievalContext);
+  const fullArchSection = buildArchitectureSummary('全本远场规划（仅供把握终局方向，禁止提前写出）', fullArch, {
+    includeCharacters: true,
+    includeWorld: true,
+  });
+  const volumeArchSection = buildArchitectureSummary('本卷远场规划（仅供把握本卷节奏，禁止提前写出）', volumeArch, {
+    includeCharacters: true,
+    includeWorld: false,
+  });
+  const volumeChapterSection = buildVolumeChapterOutlineSection(volumeChapterArchs, chapterArch.id);
 
-  return `你是一位深谙金庸武侠笔法的小说作家。请根据以下架构信息，以金庸风格撰写章节正文。
+  const farContextSection = [fullArchSection, volumeArchSection, volumeChapterSection]
+    .filter(Boolean)
+    .join('\n\n');
 
-## 金庸武侠写作风格指南（核心，贯穿全文）
+  return `你是一位擅写长篇武侠小说的作家，请直接完成本章正文。
 
-### 叙事笔法
-- 采用**全知视角**，叙事者如说书人，偶尔直接评点人物或形势（如"此人心机之深，实非常人所能揣度"）
-- 叙述语气沉稳从容，不疾不徐，有掌控全局之感
-- 行文**文白夹杂**：主体用现代汉语，人物对话与场景描写中自然融入文言词汇和古典意象，典雅而不晦涩
-- 善用**旁白点睛**：在关键情节后，叙事者用一两句话点破其中深意或留下悬念
+${novelInfoSection}
 
-### 武打与动作描写
-- 武功招式有名有实，描写时兼顾技巧细节与宏观气势
-- 打斗节奏**张弛结合**：激烈交锋之中穿插人物心理、旁观者反应、环境变化，而非一味快节奏铺陈
-- 高手过招，胜负往往在一招半式之间，以"静"衬"动"，以轻描淡写写惊天一击
-- 武功境界通过行为和他人反应体现，少用夸张形容词，多用具体细节
-
-### 人物与对话
-- 对话**言简意赅**，江湖人物说话带侠气，惜字如金；智者之言往往一语双关
-- 人物情感**含蓄克制**：爱恨情仇多通过行为、神态、细节流露，少有直白表白
-- 性格鲜明但有层次：英雄有弱点，奸人有苦衷，配角也有一两个令人印象深刻的细节
-- 善用**对比映衬**：以他人的平庸衬托主角的不凡，以小人的猥琐衬托英雄的磊落
-
-### 场景与意境
-- 场景描写有**诗词意境**，借景抒情，山川草木皆有情
-- 江湖气息浓厚：酒肆、古道、深山、月夜是常见舞台，描写时注重氛围营造
-- **诗词运用**（重要）：诗词非必须，仅在情绪或意境自然升华时插入，方式可选：
-  1. 引用真实的唐宋古诗、词、歌谣（如白居易、苏轼、辛弃疾等），须与场景情绪高度契合
-  2. 仿古自创：以文言仿写四言、五言、七言诗句或词牌片段，风格须与引文无异，不可露出现代痕迹
-  - 插入形式：可由人物吟诵、叙述者引出、匾额题字、酒旗所书等方式自然融入
-  - 切忌生硬堆砌，诗词出现的时机须是情绪或意境的升华点
-
-### 情节节奏
-- 重要情节前有铺垫，转折处出人意料又在情理之中
-- **章末留悬念**：本章结尾在情节的紧要关头或情感的高潮处戛然而止，令读者欲罢不能
-- 恩怨情仇脉络清晰，江湖道义（重义气、重承诺、恩仇必报）贯穿始终
-- 偶尔以**幽默笔法**调节气氛，在紧张之中插入轻松一笔，令人莞尔
-
-### 禁止事项（风格层面）
-- 禁止使用现代网文的"爽文"节奏（主角光环、无脑升级、大量意淫）
-- 禁止使用夸张的现代口语或网络用语
-- 禁止情感描写过于直白露骨，含蓄方显深情
-- 禁止武打描写流于流水账式罗列招式，须有节奏变化和人物心理
-
----
-
-${context}
-
-${prevChapterInfo}
+## 执行优先级
+1. 先严格遵守“本章架构、用户补充要求、故事圣经硬约束、上一章承接”。
+2. 再参考“历史相关记忆、历史原文证据”保证一致性。
+3. 最后才参考“全本/本卷远场规划”，且不得提前写出尚未发生的情节。
 
 ${chapterInfo}
 
 ${userPromptSection}
 
-## 基本要求
-- **行文风格（核心，贯穿全文）**：
-  - 语言：**半文半白**，以古典白话为主干，四字短语、对仗句式、文言虚词（”却、便、只见、但见、须知”等）自然穿插；句式长短相间，错落有致；**严禁现代口语、网络用语及西化句式**
-  - 叙事：全知视角，叙述者如说书先生，语气从容沉稳；关键处偶以”话说……””却说……”起笔，或以”此乃……”作旁白点睛
-  - **诗词**：诗词非必须，仅在情绪或意境自然升华时插入，切忌为凑诗词而生硬堆砌；若有诗词，可引用古人名篇或仿古自创（四言、五七言、词牌皆可），须与当下场景高度契合
-  - 场景：借景抒情，以白描手法绘山川风物，营造江湖苍凉或清幽意境；酒肆、古道、荒庙、月夜是常见舞台
-  - 人物对话：言简意赅，江湖人物惜字如金，一语双关；忌长篇说教和现代逻辑
-  - 整体气质贴近《射雕英雄传》《神雕侠侣》《倚天屠龙记》，风骨端正，侠气盎然
-- **字数**：4500-6000字（硬性要求：不得少于4500字，不得超过6000字）
-- **严格边界（核心禁令）**：只生成「本章架构·内容概括」所描述的情节范围内的内容。不得新增本章架构未授权的主要人物；如需路人、店家、守卫等功能性小人物推动场景，必须一笔带过，不得喧宾夺主或引入新主线。
-- 严格围绕本章架构的内容概括展开，不得偏离主线，不得跳过架构中的核心情节
-- 严格遵循全本架构的世界观设定（时代、地理、规则等），不得出现与之冲突的内容
-- ${prevChapterContent ? '根据上一章结尾情况，灵活处理章节衔接（参考上方衔接说明）' : '注意故事的开篇吸引力'}
-- 只输出正文内容，不要标题、章节号等
-- 章末禁止出现"欲知后事如何，且听下回分解"或任何类似的说书套语收尾；章末结尾方式自然多样，可以是动作、景物、人物心理、对话，无需固定公式
+${prevChapterSection}
 
-## 一、逻辑严谨性（核心规避）
-- **设定统一**：所有人物称谓、物品、场景、技能等须与小说整体设定保持一致，禁止前后矛盾（称谓统一，时代背景适配，禁用超出设定的物品/词汇）
-- **常识正确**：结合小说设定确保医学、生活、场景等相关常识合理，人物行为符合自身身份，无无目的动作
-- **时间线自洽**：所有时间表述必须能互相印证；数字（年龄、天数、人数等）前后一致；人物状态前后连贯，不可无故跳变
-- **逻辑闭环**：所有情节、人物行为均有合理动机和因果关系，避免逻辑断层、突兀转折
-- **细节适配**：人物衣着、言行、场景细节贴合人物身份和小说设定（寒门物品符合家境，贵族言行符合身份）
-- **场景连贯**：人物在A地点，不能突然出现在B地点，必须有移动过程
+${retrievalContextSection}
 
-## 二、行文流畅性
-- **节奏平衡**：张弛有度，有紧张高潮也有舒缓过渡，避免冗余堆砌与节奏过快；每章须有核心情节或核心情感，围绕核心展开
-- **过渡自然**：场景切换、人物对话、情感转折、情节推进均须自然衔接，可通过人物动作、环境描写过渡
-- **句式优化**：减少重复句式，语句流畅有质感，无语法错误，无表述拖沓，与小说整体基调一致
-- **感官体验**：调动视觉、听觉、嗅觉、触觉等感官，让读者身临其境
+${farContextSection}
 
-## 三、情感描写
-- **情感真实**：所有人物情感贴合自身身份、处境和情节发展，情随事出，避免情感单薄、突兀或脱离人物设定
-- **层次丰富**：人物情感须有完整变化（喜、怒、哀、惧的递进或转折），用动作、神态、细节支撑情感，而非单纯用词汇堆砌
-- **共情力**：情感描写贴合人物心境，避免情感虚假、生硬，不强行煽情；用动作和细节展现人物情绪，而非直接描述
+## 风格与字数
+- 文风以金庸式武侠笔法为主：全知视角，语气沉稳，半文半白，侠气与苍凉并存。
+- 对话要简洁有力，人物情感以动作、神态、细节间接流露，避免直白告白与说教。
+- 武打描写重节奏、气势和人物判断，不写流水账式招式堆砌。
+- 场景要有江湖气、风物感和感官细节，允许借景抒情；诗词非必须，只能在情绪自然升高时少量使用。
+- 字数控制在 4500-6000 字之间。
 
-## 四、人物塑造
-- **形象立体**：所有出场人物（主配角）须有自身性格特质和行为习惯，避免标签化（反派不只"刻薄"，正派不只"善良"，须有自身矛盾或闪光点）
-- **性格统一**：人物性格、言行举止须前后一致，避免人设崩塌（性格转变须有合理诱因和铺垫）
-- **细节鲜活**：通过习惯性动作、语言风格、神态表情等细节塑造人物记忆点；对话简洁有力，言辞符合人物身份与时代背景
-- **身份适配**：人物的言行、思维、价值观须贴合自身身份（寒门的务实、贵族的骄矜、职业人物的特质）
-
-## 五、事件推动
-- **情节合理**：核心事件的出现、发展、转折须符合小说设定和逻辑，避免刻意突兀、强行推动
-- **铺垫到位**：核心冲突、关键转折须有足够铺垫（通过人物对话、场景描写、细节暗示让冲突/转折自然出现）
-- **关联紧密**：本章情节须与前后章节紧密关联，既完成本章核心内容，又为后续情节埋下伏笔或做好衔接，避免孤立章节
-- **冲突合理**：冲突须贴合人物身份和小说核心线，冲突的解决/推进须符合逻辑，避免强行解围
-- **内容边界**：不得越过本章架构提前写后续章节具体情节；功能性小人物只能服务当前场景，不能承担新主线
-
-## 六、禁止事项
-- 禁用与小说设定不符的词汇、物品、行为、常识
-- 禁止使用带标号的列举（如"1. xxx 2. xxx"），用自然叙述代替
-- 禁止使用"首先、其次、然后、最后"等程式化连接词
-- 禁止使用"总的来说、综上所述"等总结性表达，及"值得注意的是、需要强调的是"等说教式表达
-- 禁止使用"让我们、我们一起"等与读者对话的口吻
-- 禁止使用"这一刻、就在这时、突然之间"等刻意制造悬念的表达
-- 禁止每段都用"他知道、他明白、他意识到"开头
-- 禁止使用"心中暗想、心中默念、心中感叹"等重复的心理描写句式
-- 避免人物标签化、情感虚假、人设崩塌、逻辑断层
+## 执行规则
+- 只写本章架构明确覆盖的内容，不得提前写后续章节具体事件或人物揭示。
+- 不得新增本章架构未授权的主要人物；路人、店家、守卫等功能性角色只能轻描淡写，不得引出新主线。
+- 所有人物称谓、物品、场景、能力、时间线必须与既有设定一致，尤其注意伤势、位置、关系、道具归属和认知边界。
+- 如果上一章结尾仍在动作、对话或同一场景中，本章开头必须连续衔接；若上一章已自然收束，才可合理转场。
+- 禁止现代口语、网络用语、西化句式、爽文式主角光环和无代价越级碾压。
+- 禁止总结腔、条目腔、说教腔，不要写标题、章号或任何解释性前言。
+- 章末要留有余味或悬念，但禁止使用“欲知后事如何”之类套语。
 
 请开始撰写本章正文：`;
 }
 
 export {
   buildChapterPrompt,
+  buildRetrievalContextSection,
   formatPreviousChapterMemory,
   getPreviousChapterContent,
   getChapterByArchitectureId,

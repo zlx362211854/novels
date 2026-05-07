@@ -1,7 +1,7 @@
 import { Annotation, StateGraph, START, END } from '@langchain/langgraph';
 import { HumanMessage } from '@langchain/core/messages';
 import { Chapter, Novel } from '../../models/sequelize';
-import * as reviewContextService from '../../services/reviewContextService';
+import * as ragService from '../../services/ragService';
 import { createLLM } from '../llmFactory';
 import { parseJsonWithRepair, strictJsonOutputRules } from '../jsonUtils';
 import { createProgressTracker } from '../progressAdapter';
@@ -122,7 +122,14 @@ async function buildContextNode(state: typeof ChapterTuneState.State) {
     tracker.step(0);
   }
 
-  const reviewContext = await reviewContextService.buildReviewContext(Number(state.chapterId), state.signal);
+  const reviewContext = await ragService.buildRetrievalContext(Number(state.chapterId), {
+    signal: state.signal,
+    userPrompt: state.userPrompt,
+    preloaded: {
+      chapter: state.chapter,
+      novel: state.novel,
+    },
+  });
   return { reviewContext };
 }
 

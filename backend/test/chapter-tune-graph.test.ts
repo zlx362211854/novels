@@ -10,6 +10,12 @@ test('buildTunePrompt focuses on user tune prompt without requiring review issue
     { level: 'chapter', title: '章纲', plot_outline: '林秋在雪夜发现线索。' },
     '加强结尾悬念，减少现代口语，不要改变主线事件。',
     {
+      storyBibleEntries: [
+        { title: '门规', content: '玄铁令不可离身。' },
+      ],
+      retrievedChunks: [
+        { chapterNumber: 7, text: '林秋始终将玄铁令藏在袖底。' },
+      ],
       relevantMemories: [
         {
           chapter_number: 8,
@@ -27,6 +33,10 @@ test('buildTunePrompt focuses on user tune prompt without requiring review issue
   assert.match(prompt, /用户微调要求/);
   assert.match(prompt, /加强结尾悬念/);
   assert.match(prompt, /相关历史证据/);
+  assert.match(prompt, /故事圣经约束/);
+  assert.match(prompt, /玄铁令不可离身/);
+  assert.match(prompt, /历史正文片段/);
+  assert.match(prompt, /林秋始终将玄铁令藏在袖底/);
   assert.match(prompt, /林秋将青铜钥匙收入怀中/);
   assert.match(prompt, /不要新增主线人物、世界规则、关键物品或大段新剧情/);
   assert.doesNotMatch(prompt, /审阅意见/);

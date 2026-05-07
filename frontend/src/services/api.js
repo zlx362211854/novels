@@ -59,6 +59,14 @@ export const chapterApi = {
   regenerateMemory: (id) => api.post(`/chapters/${id}/memory/regenerate`),
 };
 
+export const storyBibleApi = {
+  listByNovelId: (novelId) => api.get(`/novels/${novelId}/story-bible`),
+  getById: (novelId, entryId) => api.get(`/novels/${novelId}/story-bible/${entryId}`),
+  create: (novelId, data) => api.post(`/novels/${novelId}/story-bible`, data),
+  update: (novelId, entryId, data) => api.put(`/novels/${novelId}/story-bible/${entryId}`, data),
+  delete: (novelId, entryId) => api.delete(`/novels/${novelId}/story-bible/${entryId}`),
+};
+
 export const multiChapterReviewApi = {
   start: (novelId, chapterIds) =>
     api.post('/multi-chapter-reviews', { novelId, chapterIds }),

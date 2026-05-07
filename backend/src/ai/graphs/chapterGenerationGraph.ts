@@ -6,6 +6,7 @@ import { withRetry } from "../retryUtils";
 import { createProgressTracker } from "../progressAdapter";
 import { invokeWithStreaming } from "../streaming";
 import * as chapterMemoryService from "../../services/chapterMemoryService";
+import * as ragService from "../../services/ragService";
 import { chapterReviewGraph } from "./chapterReviewGraph";
 import { chapterRevisionGraph } from "./chapterRevisionGraph";
 import {
@@ -155,6 +156,15 @@ async function generateContentNode(state: typeof ChapterGenerationState.State) {
   const prevChapterContent = architecture?.id
     ? await getPreviousChapterContent(architecture.id, architecture.parent_id)
     : null;
+  const retrievalContext = await ragService.buildRetrievalContext(Number(state.chapterId), {
+    signal: state.signal,
+    userPrompt: state.userPrompt || "",
+    preloaded: {
+      chapter,
+      novel,
+      architecture,
+    },
+  });
 
   const prompt = buildChapterPrompt(
     novel,
@@ -164,6 +174,7 @@ async function generateContentNode(state: typeof ChapterGenerationState.State) {
     prevChapterContent,
     volumeChapterArchs,
     state.userPrompt || "",
+    retrievalContext,
   );
 
   const llm = await createLLM({

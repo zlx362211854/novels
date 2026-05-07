@@ -1,6 +1,8 @@
 import * as crypto from 'node:crypto';
-import { Chapter, ChapterMemory, Novel, Architecture } from '../models/sequelize';
+import { Chapter, ChapterMemory, Novel, Architecture, ChapterChunk, sequelize } from '../models/sequelize';
 import * as chapterMemoryAgent from '../agents/chapterMemoryAgent';
+import * as chapterChunkService from './chapterChunkService';
+import { getChapterChunkVectorStats } from './vectorStoreService';
 
 function buildContentHash(content: string): string {
   return crypto.createHash('sha256').update(content || '').digest('hex');
@@ -86,12 +88,34 @@ async function upsertForChapter(chapterId: number, signal?: AbortSignal, options
   const { chapter, novel, architecture } = await loadChapterContext(chapterId);
 
   if (!chapter.content || !chapter.content.trim()) {
+    await chapterChunkService.rebuildForChapter(chapterId, signal);
     return null;
   }
 
   const contentHash = buildContentHash(chapter.content);
   const existing = await ChapterMemory.findOne({ where: { chapter_id: chapterId } });
   if (existing && existing.content_hash === contentHash) {
+    const existingChunks = await ChapterChunk.findAll({
+      where: { chapter_id: chapterId },
+      order: [['chunk_index', 'ASC']]
+    });
+    const existingChunkIds = existingChunks
+      .map((chunk: any) => chunk.id)
+      .filter((chunkId: unknown): chunkId is number => typeof chunkId === 'number');
+
+    if (existingChunkIds.length === 0) {
+      await chapterChunkService.rebuildForChapter(chapterId, signal);
+      return deserializeMemory(existing);
+    }
+
+    const vectorStats = await getChapterChunkVectorStats(sequelize, existingChunkIds);
+    if (
+      vectorStats.totalRowCount !== existingChunkIds.length ||
+      vectorStats.distinctChunkCount !== existingChunkIds.length
+    ) {
+      await chapterChunkService.rebuildForChapter(chapterId, signal);
+    }
+
     return deserializeMemory(existing);
   }
 
@@ -136,6 +160,8 @@ async function upsertForChapter(chapterId: number, signal?: AbortSignal, options
     content_hash: contentHash,
     ...serializeMemory(memory)
   };
+
+  await chapterChunkService.rebuildForChapter(chapterId, signal, { memoryOverride: memory });
 
   if (existing) {
     await existing.update(payload);

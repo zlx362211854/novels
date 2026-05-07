@@ -1,7 +1,7 @@
 import { Annotation, StateGraph, START, END } from '@langchain/langgraph';
 import { HumanMessage } from '@langchain/core/messages';
 import { Chapter, ChapterVersion, Novel, Architecture } from '../../models/sequelize';
-import * as reviewContextService from '../../services/reviewContextService';
+import * as ragService from '../../services/ragService';
 import * as chapterMemoryService from '../../services/chapterMemoryService';
 import { createLLM } from '../llmFactory';
 import { createProgressTracker } from '../progressAdapter';
@@ -36,6 +36,8 @@ function formatArchitecture(architecture: any): string {
 function formatRelevantEvidence(reviewContext: any = {}): string {
   const relevantMemories = Array.isArray(reviewContext.relevantMemories) ? reviewContext.relevantMemories : [];
   const sourceExcerpts = Array.isArray(reviewContext.sourceExcerpts) ? reviewContext.sourceExcerpts : [];
+  const storyBibleEntries = Array.isArray(reviewContext.storyBibleEntries) ? reviewContext.storyBibleEntries : [];
+  const retrievedChunks = Array.isArray(reviewContext.retrievedChunks) ? reviewContext.retrievedChunks : [];
   const previousChapterContent = reviewContext.previousChapterContent || '';
 
   const sections: string[] = [];
@@ -52,6 +54,13 @@ function formatRelevantEvidence(reviewContext: any = {}): string {
     }
   }
 
+  if (storyBibleEntries.length > 0) {
+    sections.push([
+      '### 故事圣经约束',
+      ...storyBibleEntries.slice(0, 4).map((entry: any) => `- ${entry.title || '未命名条目'}：${entry.content || ''}`),
+    ].join('\n'));
+  }
+
   relevantMemories.slice(0, 6).forEach((memory: any, index: number) => {
     const facts = Array.isArray(memory.facts)
       ? memory.facts.map((fact: any) => `- ${fact.subject || ''} ${fact.predicate || ''} ${fact.object || ''}`.trim()).join('\n')
@@ -62,6 +71,13 @@ function formatRelevantEvidence(reviewContext: any = {}): string {
       memory.summary ? `概要：${memory.summary}` : '',
       facts ? `事实：\n${facts}` : '',
       excerpt ? `证据段落：${excerpt}` : '',
+    ].filter(Boolean).join('\n'));
+  });
+
+  retrievedChunks.slice(0, 4).forEach((chunk: any) => {
+    sections.push([
+      `### 历史正文片段（第${chunk.chapterNumber || '?'}章）`,
+      chunk.text || '',
     ].filter(Boolean).join('\n'));
   });
 
@@ -149,9 +165,15 @@ async function buildContextNode(state: typeof ChapterRevisionState.State) {
     tracker.step(0);
   }
 
-  const reviewContext = await reviewContextService.buildReviewContext(
+  const reviewContext = await ragService.buildRetrievalContext(
     Number(state.chapterId),
-    state.signal
+    {
+      signal: state.signal,
+      preloaded: {
+        chapter: state.chapter,
+        novel: state.novel,
+      },
+    }
   );
   return { reviewContext };
 }

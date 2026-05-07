@@ -24,6 +24,7 @@ import {
   FolderOpen,
   Loader2,
   BookOpen,
+  BookMarked,
   Layers,
   FileText,
   CheckCircle,
@@ -186,6 +187,12 @@ function NovelDetail() {
             {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
             导出
           </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link to={`/novels/${id}/story-bible`} className="flex items-center justify-center">
+              <BookMarked className="mr-1.5 h-4 w-4" />
+              故事圣经
+            </Link>
+          </Button>
           <Button size="sm" asChild>
             <Link to={`/novels/${id}/architecture`} className="flex items-center justify-center">
               <FolderOpen className="mr-1.5 h-4 w-4" />
@@ -229,6 +236,9 @@ function NovelDetail() {
           <>
             <Button asChild variant="secondary">
               <Link to={`/novels/${id}/chapters`}>进入章节列表</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to={`/novels/${id}/story-bible`}>管理故事圣经</Link>
             </Button>
             <Button asChild>
               <Link to={`/novels/${id}/architecture`}>进入架构工作台</Link>

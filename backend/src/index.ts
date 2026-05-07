@@ -16,6 +16,7 @@ import exportRouter from './routes/export';
 import aiStatusRouter from './routes/aiStatus';
 import publishRouter from './routes/publish';
 import multiChapterReviewsRouter from './routes/multiChapterReviews';
+import storyBibleRouter from './routes/storyBible';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -37,6 +38,7 @@ app.use('/api/export', exportRouter);
 app.use('/api/ai-status', aiStatusRouter);
 app.use('/api/publish', publishRouter);
 app.use('/api/multi-chapter-reviews', multiChapterReviewsRouter);
+app.use('/api/novels/:novelId/story-bible', storyBibleRouter);
 
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error(err.stack);

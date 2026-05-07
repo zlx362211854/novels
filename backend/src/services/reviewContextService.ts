@@ -1,6 +1,23 @@
 import { Chapter, Novel, Architecture } from '../models/sequelize';
 import * as chapterMemoryService from './chapterMemoryService';
 
+function emptyMemoryCard(): any {
+  return {
+    summary: '',
+    key_events: [],
+    entities: {
+      characters: [],
+      locations: [],
+      items: [],
+      organizations: [],
+    },
+    facts: [],
+    state_changes: [],
+    open_threads: [],
+    source_excerpt_map: [],
+  };
+}
+
 function uniqueTerms(values: any[]): string[] {
   const seen = new Set();
   const terms: string[] = [];
@@ -174,7 +191,8 @@ async function buildReviewContext(chapterId: number, signal?: AbortSignal, prelo
     } catch {}
   }
 
-  const currentMemory = preloaded.currentMemory ?? await chapterMemoryService.upsertForChapter(chapterId, signal);
+  const currentMemoryResult = preloaded.currentMemory ?? await chapterMemoryService.upsertForChapter(chapterId, signal);
+  const currentMemory = currentMemoryResult || emptyMemoryCard();
   const allMemories = await chapterMemoryService.findByNovelId(chapter.novel_id);
   const historicalMemories = allMemories.filter((memory: any) => memory.chapter_id !== chapter.id);
 

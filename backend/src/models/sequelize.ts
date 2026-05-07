@@ -1,6 +1,7 @@
 import { Sequelize, DataTypes, Model, Optional } from 'sequelize';
 import * as path from 'path';
 import * as fs from 'fs';
+import { ensureVectorSchema } from '../services/vectorStoreService';
 
 const dbPath = process.env.DB_PATH || './data/novels.db';
 const dbDir = path.dirname(dbPath);
@@ -559,6 +560,148 @@ MultiChapterReview.init({
   sequelize
 });
 
+interface ChapterChunkAttributes {
+  id?: number;
+  novel_id: number;
+  chapter_id: number;
+  chunk_index: number;
+  content: string;
+  metadata: string | null;
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+interface ChapterChunkCreationAttributes extends Optional<ChapterChunkAttributes, 'id'> { }
+
+class ChapterChunk extends Model<ChapterChunkAttributes, ChapterChunkCreationAttributes> implements ChapterChunkAttributes {
+  declare id: number;
+  declare novel_id: number;
+  declare chapter_id: number;
+  declare chunk_index: number;
+  declare content: string;
+  declare metadata: string | null;
+  declare created_at: Date;
+  declare updated_at: Date;
+}
+
+ChapterChunk.init({
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true,
+  },
+  novel_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'novels',
+      key: 'id'
+    }
+  },
+  chapter_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'chapters',
+      key: 'id'
+    }
+  },
+  chunk_index: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+  },
+  content: {
+    type: DataTypes.TEXT,
+    allowNull: false,
+  },
+  metadata: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  }
+}, {
+  tableName: 'chapter_chunks',
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
+  indexes: [
+    {
+      unique: true,
+      fields: ['chapter_id', 'chunk_index']
+    },
+    {
+      fields: ['novel_id']
+    }
+  ],
+  sequelize
+});
+
+interface StoryBibleEntryAttributes {
+  id?: number;
+  novel_id: number;
+  entry_type: string;
+  title: string;
+  content: string;
+  metadata: string | null;
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+interface StoryBibleEntryCreationAttributes extends Optional<StoryBibleEntryAttributes, 'id'> { }
+
+class StoryBibleEntry extends Model<StoryBibleEntryAttributes, StoryBibleEntryCreationAttributes> implements StoryBibleEntryAttributes {
+  declare id: number;
+  declare novel_id: number;
+  declare entry_type: string;
+  declare title: string;
+  declare content: string;
+  declare metadata: string | null;
+  declare created_at: Date;
+  declare updated_at: Date;
+}
+
+StoryBibleEntry.init({
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true,
+  },
+  novel_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'novels',
+      key: 'id'
+    }
+  },
+  entry_type: {
+    type: DataTypes.STRING,
+    allowNull: false,
+  },
+  title: {
+    type: DataTypes.STRING,
+    allowNull: false,
+  },
+  content: {
+    type: DataTypes.TEXT,
+    allowNull: false,
+  },
+  metadata: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  }
+}, {
+  tableName: 'story_bible_entries',
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
+  indexes: [
+    {
+      fields: ['novel_id', 'entry_type']
+    }
+  ],
+  sequelize
+});
+
 Novel.hasMany(Architecture, { foreignKey: 'novel_id', as: 'architectures', onDelete: 'CASCADE' });
 Architecture.belongsTo(Novel, { foreignKey: 'novel_id', as: 'novel' });
 
@@ -586,11 +729,26 @@ ScheduledTask.belongsTo(Novel, { foreignKey: 'novel_id', as: 'novel' });
 ScheduledTask.belongsTo(Chapter, { foreignKey: 'chapter_id', as: 'chapter' });
 Chapter.hasMany(ScheduledTask, { foreignKey: 'chapter_id', as: 'tasks' });
 
+Novel.hasMany(ChapterChunk, { foreignKey: 'novel_id', as: 'chapterChunks', onDelete: 'CASCADE' });
+ChapterChunk.belongsTo(Novel, { foreignKey: 'novel_id', as: 'novel' });
+
+Chapter.hasMany(ChapterChunk, { foreignKey: 'chapter_id', as: 'chunks', onDelete: 'CASCADE' });
+ChapterChunk.belongsTo(Chapter, { foreignKey: 'chapter_id', as: 'chapter' });
+
+Novel.hasMany(StoryBibleEntry, { foreignKey: 'novel_id', as: 'storyBibleEntries', onDelete: 'CASCADE' });
+StoryBibleEntry.belongsTo(Novel, { foreignKey: 'novel_id', as: 'novel' });
+
 async function initDatabase(): Promise<void> {
   await sequelize.query('PRAGMA journal_mode = WAL;');
   await sequelize.query('PRAGMA busy_timeout = 3000;');
   await sequelize.sync({ force: false, hooks: false });
   await ensureLegacySchema();
+  try {
+    await ensureVectorSchema(sequelize);
+  } catch (error) {
+    const vectorError = error as Error;
+    console.warn('[vector-store] sqlite-vec bootstrap skipped:', vectorError.stack || vectorError.message);
+  }
   console.log('数据库初始化完成 (Sequelize)');
 }
 
@@ -632,6 +790,14 @@ async function ensureLegacySchema(): Promise<void> {
   if (!allTables.includes('multi_chapter_reviews')) {
     await MultiChapterReview.sync({ force: false });
   }
+
+  if (!allTables.includes('chapter_chunks')) {
+    await ChapterChunk.sync({ force: false });
+  }
+
+  if (!allTables.includes('story_bible_entries')) {
+    await StoryBibleEntry.sync({ force: false });
+  }
 }
 
 export {
@@ -644,5 +810,7 @@ export {
   ScheduledTask,
   SystemConfig,
   MultiChapterReview,
+  ChapterChunk,
+  StoryBibleEntry,
   initDatabase
 };

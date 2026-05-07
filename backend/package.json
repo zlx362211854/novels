@@ -6,7 +6,8 @@
     "start": "ts-node src/index.ts",
     "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test:sqlite-vec-bootstrap": "node --test test/sqlite-vec-bootstrap.test.js",
+    "test": "node --test test/sqlite-vec-bootstrap.test.js"
   },
   "keywords": [],
   "author": "",
@@ -23,6 +24,7 @@
     "express": "^5.2.1",
     "node-schedule": "^2.1.1",
     "sequelize": "^6.37.8",
+    "sqlite-vec": "^0.1.6",
     "sqlite3": "^6.0.1",
     "uuid": "^13.0.0"
   },

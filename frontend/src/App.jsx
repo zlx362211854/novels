@@ -7,6 +7,7 @@ import MultiChapterReview from './pages/MultiChapterReview';
 import NovelDetail from './pages/NovelDetail';
 import NovelList from './pages/NovelList';
 import Settings from './pages/Settings';
+import StoryBibleManager from './pages/StoryBibleManager';
 import { BookOpen, Settings as SettingsIcon } from 'lucide-react';
 
 function AppFrame() {
@@ -57,6 +58,7 @@ function AppFrame() {
         <Routes>
           <Route path="/" element={<NovelList />} />
           <Route path="/novels/:id" element={<NovelDetail />} />
+          <Route path="/novels/:id/story-bible" element={<StoryBibleManager />} />
           <Route path="/novels/:id/architecture" element={<ArchitectureManager />} />
           <Route path="/novels/:id/chapters" element={<ChapterManager />} />
           <Route path="/chapters/:id" element={<ChapterDetail />} />
