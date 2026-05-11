@@ -101,9 +101,27 @@ export async function parseJsonWithRepair(
 ): Promise<any> {
   try {
     return parseJson(rawContent);
-  } catch {
-    console.error('JSON 解析失败，尝试修复...');
+  } catch (error) {
+    const text = stripCodeFences(rawContent || '');
+    const tail = text.slice(Math.max(0, text.length - 800));
+    console.error('JSON 解析失败，尝试修复...', {
+      error: (error as Error).message,
+      rawLength: text.length,
+      rawTail: tail,
+    });
     const repaired = await llm.invoke([new HumanMessage(repairPromptBuilder(rawContent))]);
-    return parseJson(repaired.content as string);
+    const repairedContent = typeof repaired.content === 'string' ? repaired.content : JSON.stringify(repaired.content);
+    try {
+      return parseJson(repairedContent);
+    } catch (repairError) {
+      const repairedText = stripCodeFences(repairedContent || '');
+      const repairedTail = repairedText.slice(Math.max(0, repairedText.length - 800));
+      console.error('JSON 修复后仍解析失败', {
+        error: (repairError as Error).message,
+        repairedLength: repairedText.length,
+        repairedTail,
+      });
+      throw repairError;
+    }
   }
 }

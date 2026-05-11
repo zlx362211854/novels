@@ -31,6 +31,7 @@ interface NovelAttributes {
   description: string | null;
   genre: string | null;
   publish_config: string | null;
+  ai_config: string | null;
   created_at?: Date;
   updated_at?: Date;
 }
@@ -43,6 +44,7 @@ class Novel extends Model<NovelAttributes, NovelCreationAttributes> implements N
   declare description: string | null;
   declare genre: string | null;
   declare publish_config: string | null;
+  declare ai_config: string | null;
   declare created_at: Date;
   declare updated_at: Date;
 }
@@ -64,6 +66,9 @@ Novel.init({
     type: DataTypes.STRING
   },
   publish_config: {
+    type: DataTypes.TEXT
+  },
+  ai_config: {
     type: DataTypes.TEXT
   }
 }, {
@@ -251,6 +256,7 @@ interface ChapterMemoryAttributes {
   open_threads: string | null;
   source_excerpt_map: string | null;
   key_events: string | null;
+  time_sequence: string | null;
   content_hash: string;
   created_at?: Date;
   updated_at?: Date;
@@ -270,6 +276,7 @@ class ChapterMemory extends Model<ChapterMemoryAttributes, ChapterMemoryCreation
   declare open_threads: string | null;
   declare source_excerpt_map: string | null;
   declare key_events: string | null;
+  declare time_sequence: string | null;
   declare content_hash: string;
   declare created_at: Date;
   declare updated_at: Date;
@@ -321,6 +328,9 @@ ChapterMemory.init({
     type: DataTypes.TEXT
   },
   key_events: {
+    type: DataTypes.TEXT
+  },
+  time_sequence: {
     type: DataTypes.TEXT
   },
   content_hash: {
@@ -391,10 +401,29 @@ interface ScheduledTaskAttributes {
   scheduled_time: Date;
   status: string;
   retry_count: number;
+  cron_expression: string | null;
+  enabled: boolean;
+  chapters_per_run: number;
+  last_run_at: Date | null;
+  last_run_status: string | null;
+  last_run_error: string | null;
+  last_run_result: string | null;
+  next_run_at: Date | null;
   created_at?: Date;
 }
 
-interface ScheduledTaskCreationAttributes extends Optional<ScheduledTaskAttributes, 'id'> { }
+interface ScheduledTaskCreationAttributes extends Optional<
+  ScheduledTaskAttributes,
+  'id'
+  | 'cron_expression'
+  | 'enabled'
+  | 'chapters_per_run'
+  | 'last_run_at'
+  | 'last_run_status'
+  | 'last_run_error'
+  | 'last_run_result'
+  | 'next_run_at'
+> { }
 
 class ScheduledTask extends Model<ScheduledTaskAttributes, ScheduledTaskCreationAttributes> implements ScheduledTaskAttributes {
   declare id: number;
@@ -404,6 +433,14 @@ class ScheduledTask extends Model<ScheduledTaskAttributes, ScheduledTaskCreation
   declare scheduled_time: Date;
   declare status: string;
   declare retry_count: number;
+  declare cron_expression: string | null;
+  declare enabled: boolean;
+  declare chapters_per_run: number;
+  declare last_run_at: Date | null;
+  declare last_run_status: string | null;
+  declare last_run_error: string | null;
+  declare last_run_result: string | null;
+  declare next_run_at: Date | null;
   declare created_at: Date;
 }
 
@@ -444,6 +481,40 @@ ScheduledTask.init({
   retry_count: {
     type: DataTypes.INTEGER,
     defaultValue: 0
+  },
+  cron_expression: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  enabled: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  },
+  chapters_per_run: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 1
+  },
+  last_run_at: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  last_run_status: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  last_run_error: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  last_run_result: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  next_run_at: {
+    type: DataTypes.DATE,
+    allowNull: true
   }
 }, {
   tableName: 'scheduled_tasks',
@@ -761,6 +832,12 @@ async function ensureLegacySchema(): Promise<void> {
       allowNull: true
     });
   }
+  if (!novelColumns.ai_config) {
+    await queryInterface.addColumn('novels', 'ai_config', {
+      type: DataTypes.TEXT,
+      allowNull: true
+    });
+  }
 
   const chapterColumns = await queryInterface.describeTable('chapters');
 
@@ -784,6 +861,66 @@ async function ensureLegacySchema(): Promise<void> {
       type: DataTypes.TEXT,
       allowNull: true
     });
+  }
+  if (chapterMemoryColumns && !chapterMemoryColumns.time_sequence) {
+    await queryInterface.addColumn('chapter_memories', 'time_sequence', {
+      type: DataTypes.TEXT,
+      allowNull: true
+    });
+  }
+
+  const scheduledTaskColumns = await queryInterface.describeTable('scheduled_tasks').catch(() => null as any);
+  if (scheduledTaskColumns) {
+    if (!scheduledTaskColumns.cron_expression) {
+      await queryInterface.addColumn('scheduled_tasks', 'cron_expression', {
+        type: DataTypes.STRING,
+        allowNull: true
+      });
+    }
+    if (!scheduledTaskColumns.enabled) {
+      await queryInterface.addColumn('scheduled_tasks', 'enabled', {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
+      });
+    }
+    if (!scheduledTaskColumns.chapters_per_run) {
+      await queryInterface.addColumn('scheduled_tasks', 'chapters_per_run', {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 1
+      });
+    }
+    if (!scheduledTaskColumns.last_run_at) {
+      await queryInterface.addColumn('scheduled_tasks', 'last_run_at', {
+        type: DataTypes.DATE,
+        allowNull: true
+      });
+    }
+    if (!scheduledTaskColumns.last_run_status) {
+      await queryInterface.addColumn('scheduled_tasks', 'last_run_status', {
+        type: DataTypes.STRING,
+        allowNull: true
+      });
+    }
+    if (!scheduledTaskColumns.last_run_error) {
+      await queryInterface.addColumn('scheduled_tasks', 'last_run_error', {
+        type: DataTypes.TEXT,
+        allowNull: true
+      });
+    }
+    if (!scheduledTaskColumns.last_run_result) {
+      await queryInterface.addColumn('scheduled_tasks', 'last_run_result', {
+        type: DataTypes.TEXT,
+        allowNull: true
+      });
+    }
+    if (!scheduledTaskColumns.next_run_at) {
+      await queryInterface.addColumn('scheduled_tasks', 'next_run_at', {
+        type: DataTypes.DATE,
+        allowNull: true
+      });
+    }
   }
 
   const allTables = await queryInterface.showAllTables();

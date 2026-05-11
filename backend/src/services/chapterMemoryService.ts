@@ -8,7 +8,55 @@ function buildContentHash(content: string): string {
   return crypto.createHash('sha256').update(content || '').digest('hex');
 }
 
+function parseDayFromLabel(label: string): number | null {
+  if (!label) return null;
+  const match = label.match(/第\s*(\d+)\s*天/);
+  return match ? Number(match[1]) : null;
+}
+
+function normalizePhase(value: any, label = ''): 'morning' | 'day' | 'night' {
+  const text = `${String(value || '')} ${label}`.toLowerCase();
+  if (/morning|凌晨|拂晓|黎明|清晨|早晨|早上|晨/.test(text)) return 'morning';
+  if (/night|傍晚|黄昏|入夜|夜|夜里|夜晚|晚上|深夜|月下/.test(text)) return 'night';
+  return 'day';
+}
+
+function buildPhaseLabel(day: number | null, phase: 'morning' | 'day' | 'night'): string {
+  const safeDay = day && day > 0 ? day : 1;
+  const suffix = phase === 'morning' ? '早上' : phase === 'night' ? '晚上' : '白天';
+  return `第${safeDay}天${suffix}`;
+}
+
+function normalizeTimeSequenceItem(item: any, fallbackDay: number): any | null {
+  if (!item || !item.event) return null;
+  const parsedDay = Number.isFinite(Number(item.day)) ? Number(item.day) : parseDayFromLabel(String(item.label || ''));
+  const day = parsedDay && parsedDay > 0 ? parsedDay : fallbackDay;
+  const phase = normalizePhase(item.phase, String(item.label || ''));
+  return {
+    day,
+    phase,
+    label: buildPhaseLabel(day, phase),
+    event: String(item.event || '').trim(),
+    characters: Array.isArray(item.characters) ? item.characters.filter(Boolean) : [],
+    location: item.location ? String(item.location).trim() : '',
+    evidence: item.evidence ? String(item.evidence).trim() : '',
+  };
+}
+
 function normalizeMemoryCard(memoryCard: any = {}): any {
+  let fallbackDay = 1;
+  const timeSequence = Array.isArray(memoryCard.time_sequence)
+    ? memoryCard.time_sequence
+        .map((item: any) => {
+          const normalized = normalizeTimeSequenceItem(item, fallbackDay);
+          if (normalized?.day) {
+            fallbackDay = normalized.day;
+          }
+          return normalized;
+        })
+        .filter(Boolean)
+    : [];
+
   return {
     summary: memoryCard.summary || '',
     key_events: Array.isArray(memoryCard.key_events) ? memoryCard.key_events : [],
@@ -21,6 +69,7 @@ function normalizeMemoryCard(memoryCard: any = {}): any {
     facts: Array.isArray(memoryCard.facts) ? memoryCard.facts : [],
     state_changes: Array.isArray(memoryCard.state_changes) ? memoryCard.state_changes : [],
     open_threads: Array.isArray(memoryCard.open_threads) ? memoryCard.open_threads : [],
+    time_sequence: timeSequence,
     source_excerpt_map: Array.isArray(memoryCard.source_excerpt_map) ? memoryCard.source_excerpt_map : []
   };
 }
@@ -42,6 +91,7 @@ function serializeMemory(memory: any): any {
     facts: JSON.stringify(memory.facts),
     state_changes: JSON.stringify(memory.state_changes),
     open_threads: JSON.stringify(memory.open_threads),
+    time_sequence: JSON.stringify(memory.time_sequence || []),
     source_excerpt_map: JSON.stringify(memory.source_excerpt_map)
   };
 }
@@ -62,6 +112,7 @@ function deserializeMemory(row: any): any {
     facts: parseJsonField(plain.facts, []),
     state_changes: parseJsonField(plain.state_changes, []),
     open_threads: parseJsonField(plain.open_threads, []),
+    time_sequence: parseJsonField(plain.time_sequence, []),
     source_excerpt_map: parseJsonField(plain.source_excerpt_map, [])
   };
 }
@@ -146,6 +197,7 @@ async function upsertForChapter(chapterId: number, signal?: AbortSignal, options
         facts: [],
         state_changes: [],
         open_threads: [],
+        time_sequence: [],
         source_excerpt_map: []
       });
     } else {

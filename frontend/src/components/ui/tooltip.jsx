@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from "react"
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
 
 import { cn } from "@/lib/utils"
@@ -18,9 +19,19 @@ function Tooltip({
 }
 
 function TooltipTrigger({
+  asChild = false,
+  children,
+  render,
   ...props
 }) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      render={asChild && React.isValidElement(children) ? children : render}
+      {...props}>
+      {asChild && React.isValidElement(children) ? undefined : children}
+    </TooltipPrimitive.Trigger>
+  );
 }
 
 function TooltipContent({

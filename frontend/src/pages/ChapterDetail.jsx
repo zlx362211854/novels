@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { chapterApi, architectureApi } from '../services/api';
 import PublishDialog from '../components/PublishDialog';
@@ -35,9 +35,18 @@ import {
   Upload,
   BookOpen,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Brain,
   Clock3,
+  MoreHorizontal,
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 function statusVariant(status) {
   if (status === 'generated') return 'default';
@@ -68,6 +77,7 @@ function issueTypeLabel(type) {
 function ChapterDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const feedback = useFeedback();
   const [chapter, setChapter] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -95,12 +105,25 @@ function ChapterDetail() {
   const [reviseIdea, setReviseIdea] = useState('');
   const [generatePrompt, setGeneratePrompt] = useState('');
   const [tunePrompt, setTunePrompt] = useState('');
+  const [previousChapter, setPreviousChapter] = useState(null);
   const [nextChapter, setNextChapter] = useState(null);
   const [generatingNextChapter, setGeneratingNextChapter] = useState(false);
+  const [showAiTools, setShowAiTools] = useState(false);
 
   useEffect(() => {
     loadData();
   }, [id]);
+
+  useEffect(() => {
+    if (!chapter) return;
+    if (searchParams.get('edit') !== '1') return;
+    setMode('edit');
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete('edit');
+      return next;
+    }, { replace: true });
+  }, [chapter, searchParams, setSearchParams]);
 
   const loadData = async () => {
     setLoading(true);
@@ -142,9 +165,11 @@ function ChapterDetail() {
             (left, right) => (left.chapter_number || 0) - (right.chapter_number || 0)
           );
           const currentIndex = sortedChapters.findIndex((item) => item.id === chapterData.id);
+          setPreviousChapter(currentIndex > 0 ? sortedChapters[currentIndex - 1] || null : null);
           setNextChapter(currentIndex >= 0 ? sortedChapters[currentIndex + 1] || null : null);
         } catch (nextError) {
           console.error('加载下一章信息失败:', nextError);
+          setPreviousChapter(null);
           setNextChapter(null);
         }
       }
@@ -544,6 +569,7 @@ function ChapterDetail() {
         eyebrow="Chapter Studio"
         title={chapter.title || `第 ${chapter.chapter_number} 章`}
         description="先读，再决定是重生成、局部改写，还是直接回滚版本。把这些动作放到同一页里，避免打断写作节奏。"
+        density="compact"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Tooltip>
@@ -557,10 +583,10 @@ function ChapterDetail() {
               </TooltipTrigger>
               <TooltipContent>返回完整架构页</TooltipContent>
             </Tooltip>
-            <div className="h-4 w-px bg-border" />
+            <div className="hidden h-4 w-px bg-border sm:block" />
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" onClick={handleCopy}>
+                <Button variant="outline" size="sm" onClick={handleCopy} className="hidden sm:inline-flex">
                   <Copy className="mr-1.5 size-4" />
                   复制
                 </Button>
@@ -569,7 +595,7 @@ function ChapterDetail() {
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" onClick={() => setShowPublishDialog(true)} disabled={!chapter?.content}>
+                <Button variant="outline" size="sm" onClick={() => setShowPublishDialog(true)} disabled={!chapter?.content} className="hidden sm:inline-flex">
                   <Upload className="mr-1.5 size-4" />
                   发布
                 </Button>
@@ -582,6 +608,32 @@ function ChapterDetail() {
                 编辑
               </Button>
             )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="sm:hidden">
+                  <MoreHorizontal className="size-4" />
+                  更多
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleCopy}>
+                  <Copy className="size-4" />
+                  复制正文
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowPublishDialog(true)} disabled={!chapter?.content}>
+                  <Upload className="size-4" />
+                  发布章节
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {previousChapter ? (
+              <Button size="sm" variant="outline" asChild>
+                <Link to={`/chapters/${previousChapter.id}`} className="flex items-center justify-center">
+                  <ArrowLeft className="mr-1.5 size-4" />
+                  上一章
+                </Link>
+              </Button>
+            ) : null}
             {nextChapter ? (
               <Button size="sm" variant="outline" asChild>
                 <Link to={`/chapters/${nextChapter.id}`} className="flex items-center justify-center">
@@ -603,78 +655,149 @@ function ChapterDetail() {
           </div>
         }
       >
-        <StatGrid items={stats} />
+        <StatGrid items={stats} compact />
 
-        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
-          <div className="space-y-6">
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="flex flex-col gap-4">
             <SectionCard
               title="AI 助手"
-              description="生成、审阅、重写和微调集中在这里，正文仍然由下方工作区确认。"
+              description={showAiTools ? '生成、审阅、重写和微调集中在这里，正文仍然由上方工作区确认。' : '默认收起，避免打断阅读；需要时再打开。'}
+              className="ai-command-surface order-2 rounded-lg border-primary/20"
+              actions={
+                <Button variant="outline" size="sm" onClick={() => setShowAiTools((value) => !value)}>
+                  {showAiTools ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                  {showAiTools ? '收起工具' : '打开工具'}
+                </Button>
+              }
             >
-              <div className="space-y-4">
-                <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <Label htmlFor="generate-prompt" className="text-sm font-semibold text-slate-800">
-                        生成正文要求
-                      </Label>
-                      <Textarea
-                        id="generate-prompt"
-                        value={generatePrompt}
-                        onChange={(event) => setGeneratePrompt(event.target.value)}
-                        rows={3}
-                        className="bg-white"
-                        placeholder="可选：例如承接上一章紧张气氛；重点写主角犹豫后下定决心；不要提前揭露幕后人。"
-                        disabled={generating}
-                      />
+              {!showAiTools ? (
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-primary/25 bg-accent/35 px-4 py-3 text-sm text-muted-foreground">
+                  <Sparkles className="size-4 text-primary/70" />
+                  AI 操作已收起。正文优先，生成和微调在需要时再打开。
+                </div>
+              ) : (
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+                <div className="ai-panel-primary rounded-lg border border-border/80 p-4 shadow-sm">
+                  <div className="flex h-full flex-col gap-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <Label htmlFor="generate-prompt" className="text-sm font-semibold text-slate-900">
+                          生成正文要求
+                        </Label>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          会覆盖当前正文，建议先确认阅读区内容。
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">
+                        主线生成
+                      </Badge>
                     </div>
-                    <Button onClick={handleGenerate} disabled={generating} className="lg:mb-0.5">
-                      <Sparkles className="size-4" />
-                      {generating ? '生成中...' : '生成正文'}
+                    <Textarea
+                      id="generate-prompt"
+                      value={generatePrompt}
+                      onChange={(event) => setGeneratePrompt(event.target.value)}
+                      rows={4}
+                      className="min-h-32 bg-card/82"
+                      placeholder="可选：例如承接上一章紧张气氛；重点写主角犹豫后下定决心；不要提前揭露幕后人。"
+                      disabled={generating}
+                    />
+                    <div className="flex flex-col gap-2 border-t border-border/70 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs text-muted-foreground">
+                        要求会随本章架构一起发送给 AI。
+                      </p>
+                      <Button onClick={handleGenerate} disabled={generating} className="sm:min-w-36">
+                        <Sparkles className="size-4" />
+                        {generating ? '生成中...' : '生成正文'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3">
+                  <div className="rounded-lg border border-border/80 bg-card/76 p-4 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700">
+                        <AlertTriangle className="size-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900">内容审阅</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          检查人物状态、时间线和世界规则。
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={handleReview}
+                      disabled={reviewing || !chapter?.content}
+                      className="mt-4 w-full justify-center"
+                    >
+                      <AlertTriangle className="size-4" />
+                      {reviewing ? '审阅中...' : '重新审阅'}
                     </Button>
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    生成正文会覆盖当前章节内容；填写要求后会随本章架构一起发给 AI。
-                  </p>
+
+                  <div className="rounded-lg border border-primary/20 bg-primary/10 p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                        <Info className="size-4" />
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold text-primary">当前上下文</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          架构、记忆和审核记录会参与后续判断。
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-1">
-                  <Button variant="outline" onClick={handleReview} disabled={reviewing || !chapter?.content}>
-                    <AlertTriangle className="size-4" />
-                    {reviewing ? '审阅中...' : '重新审阅'}
-                  </Button>
-                </div>
-
-                <div className="rounded-lg border border-sky-200 bg-sky-50/70 p-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <Label htmlFor="tune-prompt" className="text-sm font-semibold text-slate-800">
-                        局部微调要求
-                      </Label>
+                <div className="ai-panel-tune rounded-lg border border-primary/25 p-4 shadow-sm lg:col-span-2">
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-end">
+                    <div className="min-w-0 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <Label htmlFor="tune-prompt" className="text-sm font-semibold text-slate-900">
+                            局部微调要求
+                          </Label>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            先生成 diff 草稿，确认后再写入编辑区。
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="border-primary/25 bg-card/70 text-primary">
+                          非破坏式
+                        </Badge>
+                      </div>
                       <Textarea
                         id="tune-prompt"
                         value={tunePrompt}
                         onChange={(event) => setTunePrompt(event.target.value)}
                         rows={3}
-                        className="bg-white"
+                        className="bg-card/82"
                         placeholder="例如：加强结尾悬念；把对话写得更含蓄；减少现代口语。"
                         disabled={tuning}
                       />
                     </div>
-                    <Button
-                      onClick={handleTune}
-                      disabled={tuning || !chapter?.content || !tunePrompt.trim()}
-                      className="lg:mb-0.5"
-                    >
-                      <Sparkles className="size-4" />
-                      {tuning ? '微调中...' : '生成微调草稿'}
-                    </Button>
+                    <div className="rounded-lg border border-border/70 bg-card/68 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-primary/75">
+                        微调流程
+                      </p>
+                      <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                        草稿生成后会进入差异预览，不会立刻覆盖正文。
+                      </p>
+                      <Button
+                        onClick={handleTune}
+                        disabled={tuning || !chapter?.content || !tunePrompt.trim()}
+                        className="mt-3 w-full justify-center"
+                      >
+                        <Sparkles className="size-4" />
+                        {tuning ? '微调中...' : '生成微调草稿'}
+                      </Button>
+                    </div>
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    微调会先生成 diff 草稿；应用到编辑区后，还需要保存。
-                  </p>
                 </div>
               </div>
+              )}
             </SectionCard>
 
             <SectionCard
@@ -712,10 +835,11 @@ function ChapterDetail() {
                 ) : !tuneDraft ? (
                   <Button variant="outline" onClick={() => setMode('edit')}>
                     <Edit3 className="size-4" />
-                    开始润色
+                    手动润色
                   </Button>
                 ) : null
               }
+              className="order-1 rounded-lg"
             >
               {tuneDraft ? (
                 <ChapterDiffView
@@ -763,7 +887,7 @@ function ChapterDetail() {
                   </div>
                 </div>
               ) : (
-                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="reader-surface rounded-lg border border-border/80 p-4 shadow-sm sm:p-6">
                   <div className="mb-3 flex flex-wrap items-center gap-2">
                     <Badge variant="outline" className="text-xs">
                       <FileText className="mr-1 size-3" />
@@ -789,7 +913,7 @@ function ChapterDetail() {
                     )}
                   </div>
                   <ScrollArea className="max-h-[760px] overflow-auto">
-                    <div className="prose prose-slate max-w-none pr-3 leading-7">
+                    <div className="prose prose-slate mx-auto max-w-[74ch] pr-3 text-[1.02rem] leading-8">
                       <ReactMarkdown>
                         {chapter.content || '*暂无内容，点击上方按钮开始生成或编辑正文。*'}
                       </ReactMarkdown>
@@ -800,27 +924,27 @@ function ChapterDetail() {
             </SectionCard>
           </div>
 
-          <aside className="space-y-4 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-hidden">
-            <Card className="border-border/70 bg-white shadow-sm">
+          <aside className="space-y-3 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-hidden">
+            <Card className="rounded-lg border-border/70 bg-card/82 shadow-sm">
               <CardContent className="p-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-md border border-border/75 bg-secondary/35 py-1 px-3">
                     <p className="text-xs text-slate-500">记忆卡</p>
                     <p className="mt-1 text-lg font-semibold text-slate-900">
                       {memorySummary.hasMemory ? `${memorySummary.keyEventCount} 事件` : '未生成'}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                  <div className="rounded-md border border-border/75 bg-accent/30 py-1 px-3">
                     <p className="text-xs text-slate-500">审核</p>
                     <p className="mt-1 text-lg font-semibold text-slate-900">
                       {reviewSummary.hasReview ? `${reviewSummary.issueCount} 问题` : '未审阅'}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                  <div className="rounded-md border border-border/75 bg-secondary/35 py-1 px-3">
                     <p className="text-xs text-slate-500">实体</p>
                     <p className="mt-1 text-lg font-semibold text-slate-900">{memorySummary.entityCount}</p>
                   </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                  <div className="rounded-md border border-border/75 bg-accent/30 py-1 px-3">
                     <p className="text-xs text-slate-500">版本</p>
                     <p className="mt-1 text-lg font-semibold text-slate-900">{versions.length}</p>
                   </div>
@@ -828,7 +952,7 @@ function ChapterDetail() {
               </CardContent>
             </Card>
 
-            <Tabs defaultValue="architecture" className="min-h-0 rounded-lg border border-border bg-white p-3 shadow-sm xl:max-h-[calc(100vh-18rem)]">
+            <Tabs defaultValue="architecture" className="min-h-0 rounded-lg border border-border/80 bg-card/86 p-3 shadow-sm xl:max-h-[calc(100vh-18rem)]">
               <TabsList className="grid h-auto w-full grid-cols-4">
                 <TabsTrigger value="architecture" className="px-2 text-xs">架构</TabsTrigger>
                 <TabsTrigger value="memory" className="px-2 text-xs">记忆</TabsTrigger>
@@ -873,7 +997,7 @@ function ChapterDetail() {
                         placeholder="输入本章架构的情节概要..."
                       />
                     ) : (
-                      <div className="max-h-[min(420px,calc(100vh-28rem))] overflow-auto rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                      <div className="max-h-[min(420px,calc(100vh-28rem))] overflow-auto rounded-lg border border-border/80 bg-secondary/30 p-4">
                         <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
                           <BookOpen className="size-4 text-slate-500" />
                           情节概要

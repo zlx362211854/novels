@@ -204,7 +204,8 @@ async function crossChapterReviewNode(state: typeof CrossChapterReviewState.Stat
   const llm = await createLLM({
     temperature: 0.2,
     maxTokens: 50000,
-    provider: 'minimax',
+    graph: 'crossChapterReview',
+    novelId: state.novelId,
   });
 
   const content = await invokeWithStreaming(

@@ -139,7 +139,12 @@ async function runTuneNode(state: typeof ChapterTuneState.State) {
     tracker.step(1);
   }
 
-  const llm = await createLLM({ temperature: 0.65, maxTokens: 40000, provider: 'deepseek' });
+  const llm = await createLLM({
+    temperature: 0.65,
+    maxTokens: 40000,
+    graph: 'chapterTune',
+    novel: state.novel,
+  });
   const prompt = buildTunePrompt(
     state.chapter,
     state.novel,

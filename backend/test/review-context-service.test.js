@@ -132,6 +132,7 @@ test('buildReviewContext falls back to an empty memory card when current chapter
       organizations: [],
     });
     assert.deepEqual(result.currentMemory.facts, []);
+    assert.deepEqual(result.currentMemory.time_sequence, []);
     assert.deepEqual(result.relevantMemories, []);
     assert.deepEqual(result.sourceExcerpts, []);
   } finally {

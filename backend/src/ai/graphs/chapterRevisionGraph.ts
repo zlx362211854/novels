@@ -3,6 +3,7 @@ import { HumanMessage } from '@langchain/core/messages';
 import { Chapter, ChapterVersion, Novel, Architecture } from '../../models/sequelize';
 import * as ragService from '../../services/ragService';
 import * as chapterMemoryService from '../../services/chapterMemoryService';
+import * as aiStatus from '../../services/aiStatusService';
 import { createLLM } from '../llmFactory';
 import { createProgressTracker } from '../progressAdapter';
 import { invokeWithStreaming } from '../streaming';
@@ -186,7 +187,12 @@ async function runRevisionNode(state: typeof ChapterRevisionState.State) {
     tracker.step(1);
   }
 
-  const llm = await createLLM({ temperature: 0.7, maxTokens: 40000, provider: 'deepseek' });
+  const llm = await createLLM({
+    temperature: 0.7,
+    maxTokens: 40000,
+    graph: 'chapterRevision',
+    novel: state.novel,
+  });
   const prompt = buildRevisionPrompt(
     state.chapter,
     state.novel,
@@ -265,7 +271,9 @@ async function extractMemoryNode(state: typeof ChapterRevisionState.State) {
 
 // Node: finalize and report completion
 async function finalizeNode(state: typeof ChapterRevisionState.State) {
-  console.log(`[chapter-revise] 修订流程完成 chapterId=${state.chapterId}`);
+  const completionLog = `[chapter-revise] 修订流程完成 chapterId=${state.chapterId}`;
+  console.log(completionLog);
+  aiStatus.appendLog(state.taskId, completionLog);
   if (state.taskId) {
     const tracker = createProgressTracker(state.taskId, STEPS);
     tracker.finish();

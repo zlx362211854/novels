@@ -165,6 +165,7 @@ function ChapterManager() {
       eyebrow="Chapter Index"
       title="章节列表"
       description="这里适合集中查看所有章节状态；如果你已经有章架构，优先从架构页进入正文生产会更顺。"
+      density="compact"
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" size="sm" asChild>
@@ -181,17 +182,19 @@ function ChapterManager() {
         </div>
       }
     >
-      <StatGrid items={stats} />
+      <StatGrid items={stats} compact />
 
       <SectionCard
         title="章节清单"
         description="手动创建更适合补缺口；大批量正文建议回到架构页统一生成。"
+        className="rounded-lg"
+        contentClassName="px-0 pb-0"
         actions={
           chapters.length > 0 ? (
             <button
               type="button"
               onClick={toggleSelectAll}
-              className="flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+              className="flex items-center gap-2 rounded-full border border-border/80 bg-card/60 px-3 py-1.5 text-sm font-medium text-muted-foreground transition hover:border-primary/25 hover:bg-accent/35"
             >
               <input
                 type="checkbox"
@@ -205,33 +208,57 @@ function ChapterManager() {
         }
       >
         {chapters.length === 0 ? (
-          <div className="rounded-[28px] border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center">
+          <div className="rounded-[28px] border border-dashed border-primary/25 bg-secondary/35 px-6 py-12 text-center">
             <p className="text-lg font-semibold text-slate-800">还没有章节</p>
             <p className="mt-2 text-sm leading-6 text-slate-500">
               如果已经有章架构，可以直接去架构页生成正文；如果只是临时补一章，也可以在这里手动创建。
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="overflow-hidden rounded-b-lg border-t border-border">
+            <div className="hidden grid-cols-[44px_88px_minmax(220px,1fr)_96px_112px_176px] items-center gap-3 bg-secondary/45 px-5 py-2 text-xs font-semibold uppercase tracking-wider text-primary/75 lg:grid">
+              <span />
+              <span>序号</span>
+              <span>章节</span>
+              <span>字数</span>
+              <span>状态</span>
+              <span className="text-right">操作</span>
+            </div>
             {chapters.map((chapter) => (
-              <div key={chapter.id} className="flex flex-col gap-3 rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_12px_32px_rgba(15,23,42,0.04)] md:flex-row md:items-center md:justify-between">
-                <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div
+                key={chapter.id}
+                className="grid gap-3 border-t border-border/70 px-5 py-3 first:border-t-0 hover:bg-accent/28 lg:grid-cols-[44px_88px_minmax(220px,1fr)_96px_112px_176px] lg:items-center"
+              >
+                <div className="flex items-center gap-3 lg:block">
                   <input
                     type="checkbox"
                     checked={selectedChapterIds.has(chapter.id)}
                     onChange={() => toggleChapter(chapter.id)}
                     className="h-4 w-4 shrink-0 cursor-pointer accent-primary"
                   />
-                  <Link to={`/chapters/${chapter.id}`} className="min-w-0 flex-1">
-                    <p className="text-base font-semibold text-slate-900">
-                      第{chapter.chapter_number}章 · {chapter.title || '未命名'}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-500">
-                      {chapter.content ? `${chapter.content.length} 字` : '还没有正文内容'}
-                    </p>
-                  </Link>
+                  <span className="text-sm font-semibold text-slate-500 lg:hidden">第{chapter.chapter_number}章</span>
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="hidden text-sm font-medium text-slate-500 lg:block">
+                  第 {chapter.chapter_number} 章
+                </div>
+                <Link to={`/chapters/${chapter.id}`} className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-950">
+                    {chapter.title || '未命名'}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500 lg:hidden">
+                    {chapter.content ? `${chapter.content.length} 字` : '还没有正文内容'}
+                  </p>
+                </Link>
+                <div className="hidden text-sm tabular-nums text-slate-600 lg:block">
+                  {chapter.content ? chapter.content.length : '-'}
+                </div>
+                <div>
+                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${chapter.status === 'generated' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                    {chapter.status === 'generated' ? '已生成' : '草稿'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                   {nextChapterMap.get(chapter.id) ? (
                     <Button variant="outline" size="sm" asChild>
                       <Link to={`/chapters/${nextChapterMap.get(chapter.id).id}`}>
@@ -240,10 +267,6 @@ function ChapterManager() {
                       </Link>
                     </Button>
                   ) : null}
-                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${chapter.status === 'generated' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                    }`}>
-                    {chapter.status === 'generated' ? '已生成' : '草稿'}
-                  </span>
                   <button
                     type="button"
                     onClick={() => handleDelete(chapter)}

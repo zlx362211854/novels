@@ -1,0 +1,16 @@
+{
+  "name": "book-manage-showcase",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "hyperframes lint",
+    "validate": "hyperframes validate",
+    "inspect": "hyperframes inspect",
+    "preview": "hyperframes preview --port 3027",
+    "render": "hyperframes render --output renders/book-manage-showcase.mp4 --quality standard"
+  },
+  "devDependencies": {
+    "hyperframes": "^0.5.3"
+  }
+}

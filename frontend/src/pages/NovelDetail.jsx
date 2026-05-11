@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { architectureApi, chapterApi, exportApi, novelApi, publishApi } from '../services/api';
+import RecurringTaskCard from '../components/RecurringTaskCard';
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
 import { Button } from '../components/ui/button';
@@ -9,6 +10,13 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Badge } from '../components/ui/badge';
 import { Progress } from '../components/ui/progress';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -30,6 +38,43 @@ import {
   CheckCircle,
 } from 'lucide-react';
 
+const MODEL_OPTIONS = [
+  { value: 'zhipu', label: '智谱 AI' },
+  { value: 'deepseek', label: 'DeepSeek' },
+  { value: 'minimax', label: 'MiniMax' },
+];
+
+const emptyProfile = () => ({ provider: '', model: '', maxTokens: '' });
+
+function normalizeProfile(value, fallbackProvider = '') {
+  if (!value) return { provider: fallbackProvider, model: '', maxTokens: '' };
+  if (typeof value === 'string') return { provider: value, model: '', maxTokens: '' };
+  return {
+    provider: value.provider || fallbackProvider || '',
+    model: value.model || '',
+    maxTokens: value.maxTokens ?? '',
+  };
+}
+
+function serializeProfile(profile) {
+  if (!profile?.provider) return null;
+  const maxTokens = Number(profile.maxTokens);
+  return {
+    provider: profile.provider,
+    model: profile.model?.trim() || undefined,
+    maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? Math.floor(maxTokens) : undefined,
+  };
+}
+
+const GRAPH_MODEL_FIELDS = [
+  { key: 'chapterGeneration', label: '章节生成' },
+  { key: 'chapterReview', label: '章节审阅' },
+  { key: 'chapterRevision', label: '章节修订' },
+  { key: 'chapterTune', label: '章节微调' },
+  { key: 'memoryExtraction', label: '记忆卡提取' },
+  { key: 'crossChapterReview', label: '跨章审阅' },
+];
+
 function NovelDetail() {
   const { id } = useParams();
   const feedback = useFeedback();
@@ -41,12 +86,45 @@ function NovelDetail() {
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [publishPlatforms, setPublishPlatforms] = useState([]);
-  const [editForm, setEditForm] = useState({ title: '', description: '', genre: '', publishConfig: {} });
+  const [editForm, setEditForm] = useState({
+    title: '',
+    description: '',
+    genre: '',
+    publishConfig: {},
+    aiConfig: { defaultModel: '', defaultProfile: emptyProfile(), graphModels: {}, chapterGenerationPromptTemplate: '' },
+  });
 
   const parsePublishConfig = (value) => {
     if (!value) return {};
     if (typeof value !== 'string') return value;
     try { return JSON.parse(value); } catch { return {}; }
+  };
+
+  const parseAiConfig = (value) => {
+    if (!value) return { defaultModel: '', defaultProfile: emptyProfile(), graphModels: {}, chapterGenerationPromptTemplate: '' };
+    if (typeof value !== 'string') {
+      return {
+        defaultModel: value.defaultModel || '',
+        defaultProfile: normalizeProfile(value.defaultProfile || value.defaultModel, value.defaultModel || ''),
+        graphModels: Object.fromEntries(
+          Object.entries(value.graphModels || {}).map(([key, item]) => [key, normalizeProfile(item)])
+        ),
+        chapterGenerationPromptTemplate: value.chapterGenerationPromptTemplate || '',
+      };
+    }
+    try {
+      const parsed = JSON.parse(value);
+      return {
+        defaultModel: parsed.defaultModel || '',
+        defaultProfile: normalizeProfile(parsed.defaultProfile || parsed.defaultModel, parsed.defaultModel || ''),
+        graphModels: Object.fromEntries(
+          Object.entries(parsed.graphModels || {}).map(([key, item]) => [key, normalizeProfile(item)])
+        ),
+        chapterGenerationPromptTemplate: parsed.chapterGenerationPromptTemplate || '',
+      };
+    } catch {
+      return { defaultModel: '', defaultProfile: emptyProfile(), graphModels: {}, chapterGenerationPromptTemplate: '' };
+    }
   };
 
   useEffect(() => {
@@ -71,6 +149,7 @@ function NovelDetail() {
         description: novelRes.data.description || '',
         genre: novelRes.data.genre || '',
         publishConfig: parsePublishConfig(novelRes.data.publish_config),
+        aiConfig: parseAiConfig(novelRes.data.ai_config),
       });
     } catch (error) {
       console.error('加载数据失败:', error);
@@ -103,6 +182,7 @@ function NovelDetail() {
       description: novel?.description || '',
       genre: novel?.genre || '',
       publishConfig: parsePublishConfig(novel?.publish_config),
+      aiConfig: parseAiConfig(novel?.ai_config),
     });
   };
 
@@ -170,6 +250,7 @@ function NovelDetail() {
       eyebrow="Novel Workspace"
       title={novel.title}
       description={novel.description || '先搭骨架，再生成章节，再统一回看节奏和完整度。'}
+      density="compact"
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" size="sm" asChild>
@@ -221,6 +302,7 @@ function NovelDetail() {
       </SectionCard>
 
       <StatGrid
+        compact
         items={[
           { label: '全本架构', value: summary.full, caption: summary.full ? '总纲已建立' : '建议先补全总纲' },
           { label: '卷架构', value: summary.volume, caption: '管理篇章节奏' },
@@ -286,75 +368,249 @@ function NovelDetail() {
         </div>
       </SectionCard>
 
+      <RecurringTaskCard novelId={id} />
+
       {/* Edit Dialog */}
       <Dialog open={editing} onOpenChange={(open) => !open && handleCancelEdit()}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden p-0 sm:max-w-4xl">
+          <DialogHeader className="shrink-0 px-6 pt-6 pr-12">
             <DialogTitle>编辑小说信息</DialogTitle>
             <DialogDescription>基础信息会同步影响后续架构与导出内容。</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleUpdate} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-title">标题</Label>
-              <Input
-                id="edit-title"
-                value={editForm.title}
-                onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-desc">简介</Label>
-              <Textarea
-                id="edit-desc"
-                value={editForm.description}
-                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                rows={4}
-                placeholder="用几句话概括这部小说正在写什么。"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-genre">类型</Label>
-              <Input
-                id="edit-genre"
-                value={editForm.genre}
-                onChange={(e) => setEditForm({ ...editForm, genre: e.target.value })}
-                placeholder="玄幻 / 科幻 / 都市..."
-              />
-            </div>
-            <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
-              <div>
-                <p className="text-sm font-medium">发布作品 ID</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  同一部小说在不同平台的作品 ID 在这里配置，平台启用状态仍在系统设置中管理。
-                </p>
+          <form onSubmit={handleUpdate} className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-title">标题</Label>
+                <Input
+                  id="edit-title"
+                  value={editForm.title}
+                  onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                  required
+                />
               </div>
-              {publishPlatforms.length ? (
-                publishPlatforms.map((platform) => {
-                  const platformConfig = editForm.publishConfig?.[platform.key] || {};
-                  return (
-                    <div key={platform.key} className="flex items-center gap-3">
-                      <Label className="w-20 shrink-0">{platform.name}</Label>
-                      <Input
-                        value={platformConfig.workId || ''}
-                        onChange={(event) => setEditForm((current) => ({
+              <div className="space-y-2">
+                <Label htmlFor="edit-desc">简介</Label>
+                <Textarea
+                  id="edit-desc"
+                  value={editForm.description}
+                  onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                  rows={4}
+                  placeholder="用几句话概括这部小说正在写什么。"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-genre">类型</Label>
+                <Input
+                  id="edit-genre"
+                  value={editForm.genre}
+                  onChange={(e) => setEditForm({ ...editForm, genre: e.target.value })}
+                  placeholder="玄幻 / 科幻 / 都市..."
+                />
+              </div>
+              <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+                <div>
+                  <p className="text-sm font-medium">发布作品 ID</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    同一部小说在不同平台的作品 ID 在这里配置，平台启用状态仍在系统设置中管理。
+                  </p>
+                </div>
+                {publishPlatforms.length ? (
+                  publishPlatforms.map((platform) => {
+                    const platformConfig = editForm.publishConfig?.[platform.key] || {};
+                    return (
+                      <div key={platform.key} className="flex items-center gap-3">
+                        <Label className="w-20 shrink-0">{platform.name}</Label>
+                        <Input
+                          value={platformConfig.workId || ''}
+                          onChange={(event) => setEditForm((current) => ({
+                            ...current,
+                            publishConfig: {
+                              ...current.publishConfig,
+                              [platform.key]: {
+                                ...current.publishConfig?.[platform.key],
+                                workId: event.target.value,
+                              },
+                            },
+                          }))}
+                          placeholder="平台上的作品/书籍 ID"
+                        />
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-sm text-muted-foreground">暂无可配置的发布平台。</p>
+                )}
+              </div>
+              <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+                <div>
+                  <p className="text-sm font-medium">小说级 AI 配置</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    这里的配置会优先于系统设置。适合给当前小说单独指定模型和章节生成模板。
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>小说默认模型</Label>
+                <Select
+                  value={editForm.aiConfig?.defaultProfile?.provider || editForm.aiConfig?.defaultModel || '__default__'}
+                  onValueChange={(value) => setEditForm((current) => ({
+                    ...current,
+                    aiConfig: {
+                      ...current.aiConfig,
+                      defaultModel: value === '__default__' ? '' : value,
+                      defaultProfile: value === '__default__'
+                        ? emptyProfile()
+                        : {
+                            ...normalizeProfile(current.aiConfig?.defaultProfile),
+                            provider: value,
+                          },
+                    },
+                  }))}
+                >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__default__">继承系统默认模型</SelectItem>
+                      {MODEL_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="novel-model-version">默认模型版本</Label>
+                  <Input
+                    id="novel-model-version"
+                    value={editForm.aiConfig?.defaultProfile?.model || ''}
+                    onChange={(event) => setEditForm((current) => ({
+                      ...current,
+                      aiConfig: {
+                        ...current.aiConfig,
+                        defaultProfile: {
+                          ...normalizeProfile(current.aiConfig?.defaultProfile, current.aiConfig?.defaultModel),
+                          model: event.target.value,
+                        },
+                      },
+                    }))}
+                    placeholder="例如 glm-5 / deepseek-v4-pro"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="novel-model-max-tokens">默认 Max Tokens</Label>
+                  <Input
+                    id="novel-model-max-tokens"
+                    type="number"
+                    min="1"
+                    value={editForm.aiConfig?.defaultProfile?.maxTokens ?? ''}
+                    onChange={(event) => setEditForm((current) => ({
+                      ...current,
+                      aiConfig: {
+                        ...current.aiConfig,
+                        defaultProfile: {
+                          ...normalizeProfile(current.aiConfig?.defaultProfile, current.aiConfig?.defaultModel),
+                          maxTokens: event.target.value,
+                        },
+                      },
+                    }))}
+                    placeholder="留空则使用默认值"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {GRAPH_MODEL_FIELDS.map((field) => (
+                  <div key={field.key} className="space-y-2">
+                    <Label>{field.label}</Label>
+                    <div className="space-y-2 rounded-md border bg-background/70 p-3">
+                      <Select
+                        value={editForm.aiConfig?.graphModels?.[field.key]?.provider || '__default__'}
+                        onValueChange={(value) => setEditForm((current) => ({
                           ...current,
-                          publishConfig: {
-                            ...current.publishConfig,
-                            [platform.key]: {
-                              ...current.publishConfig?.[platform.key],
-                              workId: event.target.value,
+                          aiConfig: {
+                            ...current.aiConfig,
+                            graphModels: {
+                              ...current.aiConfig?.graphModels,
+                              [field.key]: value === '__default__'
+                                ? undefined
+                                : {
+                                    ...normalizeProfile(current.aiConfig?.graphModels?.[field.key]),
+                                    provider: value,
+                                  },
                             },
                           },
                         }))}
-                        placeholder="平台上的作品/书籍 ID"
-                      />
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__default__">继承小说默认模型</SelectItem>
+                          {MODEL_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {editForm.aiConfig?.graphModels?.[field.key]?.provider ? (
+                        <>
+                          <Input
+                            value={editForm.aiConfig?.graphModels?.[field.key]?.model || ''}
+                            onChange={(event) => setEditForm((current) => ({
+                              ...current,
+                              aiConfig: {
+                                ...current.aiConfig,
+                                graphModels: {
+                                  ...current.aiConfig?.graphModels,
+                                  [field.key]: {
+                                    ...normalizeProfile(current.aiConfig?.graphModels?.[field.key]),
+                                    model: event.target.value,
+                                  },
+                                },
+                              },
+                            }))}
+                            placeholder="模型版本"
+                          />
+                          <Input
+                            type="number"
+                            min="1"
+                            value={editForm.aiConfig?.graphModels?.[field.key]?.maxTokens ?? ''}
+                            onChange={(event) => setEditForm((current) => ({
+                              ...current,
+                              aiConfig: {
+                                ...current.aiConfig,
+                                graphModels: {
+                                  ...current.aiConfig?.graphModels,
+                                  [field.key]: {
+                                    ...normalizeProfile(current.aiConfig?.graphModels?.[field.key]),
+                                    maxTokens: event.target.value,
+                                  },
+                                },
+                              },
+                            }))}
+                            placeholder="Max Tokens"
+                          />
+                        </>
+                      ) : null}
                     </div>
-                  );
-                })
-              ) : (
-                <p className="text-sm text-muted-foreground">暂无可配置的发布平台。</p>
-              )}
+                  </div>
+                ))}
+              </div>
+                <div className="space-y-2">
+                  <Label htmlFor="novel-chapter-template">章节生成 Prompt 模板</Label>
+                  <Textarea
+                    id="novel-chapter-template"
+                    rows={14}
+                    value={editForm.aiConfig?.chapterGenerationPromptTemplate || ''}
+                    onChange={(event) => setEditForm((current) => ({
+                      ...current,
+                      aiConfig: {
+                        ...current.aiConfig,
+                        chapterGenerationPromptTemplate: event.target.value,
+                      },
+                    }))}
+                    placeholder={`留空则继承系统默认模板。可用占位符：{{novelInfoSection}} {{chapterInfo}} {{userPromptSection}} {{prevChapterSection}} {{retrievalContextSection}} {{farContextSection}}`}
+                  />
+                </div>
+              </div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={handleCancelEdit}>

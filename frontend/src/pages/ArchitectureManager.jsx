@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
 import { architectureApi, chapterApi } from '../services/api';
 import PublishDialog from '../components/PublishDialog';
 import { useFeedback } from '../components/ui/FeedbackProvider';
+import { useAiStatus } from '../components/AiStatusProvider';
 import JsonField from '../components/ui/JsonField';
 import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
 
@@ -59,10 +61,142 @@ const initialForm = {
   emotionalTone: '',
 };
 
+function ArchitectureReviewTaskPanel({ result, rewriteLoading, onClear, onGenerateRepair }) {
+  return (
+    <div className="space-y-4">
+      {result?.summary ? (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-amber-100 bg-amber-50/60 p-4">
+            <h4 className="mb-2 text-sm font-semibold text-slate-900">总体评价</h4>
+            <p className="text-sm text-slate-600">{result.summary.overallAssessment}</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Card>
+              <CardContent className="p-4 text-sm">完整性：{result.summary.integrityScore}</CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 text-sm">流畅性：{result.summary.flowScore}</CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 text-sm">Bug 风险：{result.summary.bugScore}</CardContent>
+            </Card>
+          </div>
+        </div>
+      ) : null}
+
+      {result?.issues?.length > 0 ? (
+        <div className="space-y-3">
+          <h4 className="text-sm font-semibold text-slate-900">发现的问题</h4>
+          {result.issues.map((issue, index) => (
+            <Card key={`drawer-issue-${index}`} className="border-l-4 border-l-amber-400">
+              <CardContent className="space-y-2 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant={
+                      issue.severity === 'high'
+                        ? 'destructive'
+                        : issue.severity === 'medium'
+                          ? 'default'
+                          : 'secondary'
+                    }
+                  >
+                    {issue.severity === 'high' ? '严重' : issue.severity === 'medium' ? '中等' : '轻微'}
+                  </Badge>
+                  <Badge variant="outline">{issue.category}</Badge>
+                </div>
+                <p className="text-sm font-medium text-slate-900">{issue.title}</p>
+                <p className="text-sm text-slate-600">{issue.description}</p>
+                {issue.affectedChapterIds?.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    涉及章架构 ID：{issue.affectedChapterIds.join('、')}
+                  </p>
+                ) : null}
+                {issue.needsNewChapter ? (
+                  <p className="text-xs font-medium text-amber-700">建议新增承接情节或过渡章</p>
+                ) : null}
+                <p className="text-sm text-slate-600">
+                  <span className="font-medium">建议：</span>
+                  {issue.suggestion}
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-4 text-sm text-emerald-800">
+          本轮未发现明确问题，可以直接继续创作。
+        </div>
+      )}
+
+      <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+        <Button variant="outline" size="sm" onClick={onClear}>
+          清除结果
+        </Button>
+        <Button size="sm" onClick={onGenerateRepair} disabled={rewriteLoading}>
+          {rewriteLoading && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+          生成修补方案
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ArchitectureRepairTaskPanel({ result, applyingChanges, onApply }) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Card>
+          <CardContent className="p-4 text-sm">将更新 {result?.updatedChapters?.length || 0} 章</CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-sm">将新增 {result?.newChapters?.length || 0} 章</CardContent>
+        </Card>
+      </div>
+
+      {(result?.updatedChapters || []).map((chapter) => (
+        <div key={`drawer-update-${chapter.chapterId}`} className="rounded-lg border bg-slate-50/70 p-3">
+          <p className="text-sm font-medium text-slate-900">
+            更新章架构 #{chapter.chapterId}：{chapter.title}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">{chapter.plotOutline}</p>
+        </div>
+      ))}
+
+      {(result?.newChapters || []).map((chapter, idx) => (
+        <div key={`drawer-new-${idx}`} className="rounded-lg border bg-slate-50/70 p-3">
+          <p className="text-sm font-medium text-slate-900">新增章架构：{chapter.title}</p>
+          <p className="mt-1 text-xs text-slate-500">
+            插入到章架构 #{chapter.insertAfterChapterId} 之后
+          </p>
+          <p className="mt-1 text-xs text-slate-500">{chapter.plotOutline}</p>
+        </div>
+      ))}
+
+      <div className="flex justify-end border-t pt-4">
+        <Button size="sm" onClick={onApply} disabled={applyingChanges}>
+          {applyingChanges && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+          应用修补
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ArchitectureApplyTaskPanel({ updated, created }) {
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-4 text-sm text-emerald-900">
+        章架构修补已完成：更新 {updated} 章，新增 {created} 章。
+      </div>
+    </div>
+  );
+}
+
 function ArchitectureManager() {
   const { id } = useParams();
   const navigate = useNavigate();
   const feedback = useFeedback();
+  const { setTaskPanel, clearTaskPanel } = useAiStatus();
   const [architectures, setArchitectures] = useState([]);
   const [chapters, setChapters] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -70,7 +204,6 @@ function ArchitectureManager() {
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [showChapterBatch, setShowChapterBatch] = useState(false);
   const [selectedVolumeId, setSelectedVolumeId] = useState('');
   const [generatedChapters, setGeneratedChapters] = useState([]);
   const [batchGenerating, setBatchGenerating] = useState(false);
@@ -85,26 +218,30 @@ function ArchitectureManager() {
   const [formData, setFormData] = useState(initialForm);
   const [publishTarget, setPublishTarget] = useState(null); // { chapterId, chapterTitle, publishResult }
   const [expandedVolumes, setExpandedVolumes] = useState({});
-  const [showReviewDialog, setShowReviewDialog] = useState(false);
-  const [showReviewConfirmDialog, setShowReviewConfirmDialog] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
-  const [reviewResult, setReviewResult] = useState(() => {
-    // 从 localStorage 恢复审阅结果
-    const saved = localStorage.getItem(`architecture-review-${id}`);
-    return saved ? JSON.parse(saved) : null;
-  });
-  const [showRewriteDialog, setShowRewriteDialog] = useState(false);
+  const [reviewResult, setReviewResult] = useState(null);
   const [rewriteLoading, setRewriteLoading] = useState(false);
   const [rewritePrompt, setRewritePrompt] = useState('');
-  const [rewriteResult, setRewriteResult] = useState(() => {
-    const saved = localStorage.getItem(`architecture-rewrite-${id}`);
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [rewriteResult, setRewriteResult] = useState(null);
   const [applyingChanges, setApplyingChanges] = useState(false);
+  const [selectedArchId, setSelectedArchId] = useState(null);
+  const [workflowMode, setWorkflowMode] = useState('details');
+  const detailPanelRef = useRef(null);
 
   useEffect(() => {
     loadData();
   }, [id]);
+
+  useEffect(() => {
+    if (architectures.length === 0) {
+      setSelectedArchId(null);
+      return;
+    }
+    setSelectedArchId((current) => {
+      if (current && architectures.some((arch) => arch.id === current)) return current;
+      return architectures.find((arch) => arch.level === 'full')?.id || architectures[0]?.id || null;
+    });
+  }, [architectures]);
 
   const loadData = async () => {
     setLoading(true);
@@ -131,25 +268,6 @@ function ArchitectureManager() {
     setShowCreate(false);
     setEditingId(null);
     resetForm();
-  };
-
-  const closeBatchDialog = async () => {
-    if (batchGenerating) {
-      feedback.warning('正在生成中，请等待完成后再关闭。');
-      return;
-    }
-    if (generatedChapters.length > 0) {
-      const confirmed = await feedback.confirm({
-        title: '草稿尚未保存',
-        message: `已生成 ${generatedChapters.length} 条章架构草稿，关闭后将丢失。`,
-        confirmText: '丢弃并关闭',
-        cancelText: '继续编辑',
-        variant: 'danger',
-      });
-      if (!confirmed) return;
-      setGeneratedChapters([]);
-    }
-    setShowChapterBatch(false);
   };
 
   const getNextChapterNumber = (archId) => {
@@ -294,19 +412,25 @@ function ArchitectureManager() {
   };
 
   const handleGenerateChapterBatch = async () => {
-    if (!selectedVolumeId) {
+    const targetVolumeId =
+      selectedArch?.level === 'volume'
+        ? selectedArch.id?.toString()
+        : selectedVolumeId;
+
+    if (!targetVolumeId) {
       feedback.warning('请先选择一个卷架构。');
       return;
     }
     setBatchGenerating(true);
     setGeneratedChapters([]);
     try {
-      const res = await architectureApi.generateChapterArchitectures(id, selectedVolumeId);
+      const res = await architectureApi.generateChapterArchitectures(id, targetVolumeId);
       const normalized = (res.data || []).map((ch, i) => ({
         chapterNumber: ch.chapter_number ?? ch.chapterNumber ?? (i + 1),
         title: ch.title || '',
         plot_summary: ch.plot_summary || ch.summary || ch.plot_outline || ch.plotOutline || '',
       }));
+      setSelectedVolumeId(targetVolumeId);
       setGeneratedChapters(normalized);
       feedback.success(`已生成 ${normalized.length} 条章架构草稿。`);
     } catch (error) {
@@ -325,9 +449,9 @@ function ArchitectureManager() {
         plotOutline: ch.plot_summary || '',
       }));
       await architectureApi.batchCreateChapterArchitectures(id, selectedVolumeId, chaptersToSave);
-      setShowChapterBatch(false);
       setGeneratedChapters([]);
       setSelectedVolumeId('');
+      setWorkflowMode('details');
       feedback.success(`已保存 ${generatedChapters.length} 条章架构。`);
       loadData();
     } catch (error) {
@@ -420,15 +544,6 @@ function ArchitectureManager() {
   };
 
   const handleBatchGenerateContent = async (volume) => {
-    const confirmed = await feedback.confirm({
-      title: `批量生成「${volume.title}」的正文？`,
-      message: '系统会按该卷下的章架构逐章生成正文，这可能需要较长时间。',
-      note: '建议先确认章架构顺序和标题都已经稳定。',
-      confirmText: '开始生成',
-      cancelText: '稍后再说',
-    });
-    if (!confirmed) return;
-
     setBatchGeneratingContent(true);
     try {
       const res = await architectureApi.batchGenerateChapters(id, volume.id);
@@ -454,28 +569,35 @@ function ArchitectureManager() {
       feedback.warning('请先创建至少一个架构。');
       return;
     }
-    // 如果有上次的审阅结果，直接显示；否则显示确认对话框
-    if (reviewResult) {
-      setShowReviewDialog(true);
-    } else {
-      setShowReviewConfirmDialog(true);
-    }
+    setSelectedArchId(fullArch?.id || architectures[0]?.id || null);
+    setReviewResult(null);
+    setRewriteResult(null);
+    clearTaskPanel();
+    requestAnimationFrame(() => {
+      detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    void handleStartReview();
   };
 
   const handleStartReview = async () => {
-    setShowReviewConfirmDialog(false);
     setReviewLoading(true);
     try {
-      const res = await architectureApi.reviewArchitectures(id);
-      const result = res.data;
+      const res = await architectureApi.reviewChapterArchitectures(id);
+      const { taskId, result } = res.data;
       setReviewResult(result);
-      // 保存到 localStorage
-      localStorage.setItem(`architecture-review-${id}`, JSON.stringify(result));
-      setShowReviewDialog(true);
-      feedback.success('架构审阅完成。');
+      setTaskPanel(
+        taskId,
+        <ArchitectureReviewTaskPanel
+          result={result}
+          rewriteLoading={rewriteLoading}
+          onClear={handleClearReviewResult}
+          onGenerateRepair={() => void handleRewriteArchitectures(result)}
+        />
+      );
+      feedback.success('全书级章架构审阅完成。');
     } catch (error) {
-      console.error('架构审阅失败:', error);
-      feedback.error(error.response?.data?.error || '审阅失败，请稍后再试。');
+      console.error('全书级章架构审阅失败:', error);
+      feedback.error(error.response?.data?.error || '全书级章架构审阅失败，请稍后再试。');
     } finally {
       setReviewLoading(false);
     }
@@ -483,47 +605,55 @@ function ArchitectureManager() {
 
   const handleClearReviewResult = () => {
     setReviewResult(null);
-    localStorage.removeItem(`architecture-review-${id}`);
+    setRewriteResult(null);
+    clearTaskPanel();
     feedback.success('已清除审阅结果，可以重新审阅。');
   };
 
-  const handleRewriteArchitectures = async () => {
-    if (!reviewResult) return;
+  const handleRewriteArchitectures = async (reviewData = reviewResult) => {
+    if (!reviewData) return;
     setRewriteLoading(true);
     setRewriteResult(null);
+    clearTaskPanel();
     try {
-      const res = await architectureApi.rewriteArchitectures(id, reviewResult, rewritePrompt);
-      setRewriteResult(res.data);
-      localStorage.setItem(`architecture-rewrite-${id}`, JSON.stringify(res.data));
-      setShowRewriteDialog(true);
-      feedback.success('架构重写完成，请查看结果。');
+      const res = await architectureApi.repairChapterArchitectures(id, reviewData, rewritePrompt);
+      const { taskId, result } = res.data;
+      setRewriteResult(result);
+      setTaskPanel(
+        taskId,
+        <ArchitectureRepairTaskPanel
+          result={result}
+          applyingChanges={applyingChanges}
+          onApply={() => void handleApplyRewrite(result)}
+        />
+      );
+      feedback.success('章架构修补方案已生成，请查看结果。');
     } catch (error) {
-      console.error('架构重写失败:', error);
-      feedback.error(error.response?.data?.error || '重写失败，请稍后再试。');
+      console.error('生成章架构修补方案失败:', error);
+      feedback.error(error.response?.data?.error || '生成修补方案失败，请稍后再试。');
     } finally {
       setRewriteLoading(false);
     }
   };
 
-  const handleApplyRewrite = async () => {
-    if (!rewriteResult) return;
+  const handleApplyRewrite = async (repairData = rewriteResult) => {
+    if (!repairData) return;
     setApplyingChanges(true);
+    clearTaskPanel();
     try {
-      const res = await architectureApi.applyRewrite(id, rewriteResult);
-      const { stats } = res.data;
+      const res = await architectureApi.applyChapterArchitectureRepair(id, repairData);
+      const { taskId, result } = res.data;
+      const { updated = 0, created = 0 } = result;
 
-      setShowRewriteDialog(false);
-      setShowReviewDialog(false);
       setRewriteResult(null);
       setReviewResult(null);
       setRewritePrompt('');
-      localStorage.removeItem(`architecture-rewrite-${id}`);
-      localStorage.removeItem(`architecture-review-${id}`);
-      feedback.success(`架构更新完成：更新 ${stats.updated} 项，新增 ${stats.created} 项，删除 ${stats.deleted} 项。`);
+      setTaskPanel(taskId, <ArchitectureApplyTaskPanel updated={updated} created={created} />);
+      feedback.success(`章架构修补完成：更新 ${updated} 章，新增 ${created} 章。`);
       loadData();
     } catch (error) {
-      console.error('应用更改失败:', error);
-      feedback.error(error.response?.data?.error || '应用更改失败，请稍后再试。');
+      console.error('应用章架构修补失败:', error);
+      feedback.error(error.response?.data?.error || '应用章架构修补失败，请稍后再试。');
     } finally {
       setApplyingChanges(false);
     }
@@ -531,6 +661,7 @@ function ArchitectureManager() {
 
   const fullArch = architectures.find((arch) => arch.level === 'full');
   const volumes = architectures.filter((arch) => arch.level === 'volume');
+  const volumeIdsKey = volumes.map((volume) => volume.id).join(',');
   const chapterArchs = architectures.filter((arch) => arch.level === 'chapter');
   const projectedChapterNumberByArchId = useMemo(() => {
     const volumeOrder = new Map(
@@ -565,6 +696,58 @@ function ArchitectureManager() {
     [chapterArchs.length, chapters, fullArch, volumes.length]
   );
 
+  const selectedArch = useMemo(
+    () => architectures.find((arch) => arch.id === selectedArchId) || fullArch || architectures[0] || null,
+    [architectures, fullArch, selectedArchId]
+  );
+
+  const selectedChildren = useMemo(() => {
+    if (!selectedArch) return [];
+    if (selectedArch.level === 'full') return volumes;
+    if (selectedArch.level === 'volume') return chapterArchs.filter((arch) => arch.parent_id === selectedArch.id);
+    return [];
+  }, [chapterArchs, selectedArch, volumes]);
+
+  useEffect(() => {
+    if (volumes.length === 0) {
+      setExpandedVolumes({});
+      return;
+    }
+
+    setExpandedVolumes((current) => {
+      const volumeIds = volumes.map((volume) => volume.id);
+      const currentIds = Object.keys(current).map(Number);
+      const hasSameIds =
+        currentIds.length === volumeIds.length &&
+        volumeIds.every((volumeId) => Object.prototype.hasOwnProperty.call(current, volumeId));
+
+      if (hasSameIds) return current;
+
+      return Object.fromEntries(
+        volumeIds.map((volumeId, index) => [
+          volumeId,
+          Object.prototype.hasOwnProperty.call(current, volumeId) ? current[volumeId] : index === 0,
+        ])
+      );
+    });
+  }, [volumeIdsKey]);
+
+  useEffect(() => {
+    if (selectedArch?.level !== 'volume' && workflowMode === 'chapterBatch') {
+      setWorkflowMode('details');
+      setGeneratedChapters([]);
+      setSelectedVolumeId('');
+    }
+  }, [selectedArch, workflowMode]);
+
+  useEffect(() => {
+    if (workflowMode === 'chapterBatch') {
+      requestAnimationFrame(() => {
+        detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+  }, [workflowMode]);
+
   if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
@@ -581,6 +764,7 @@ function ArchitectureManager() {
       eyebrow="Architecture Studio"
       title="架构工作台"
       description="先稳住三层架构，再决定是批量拆章，还是直接进入正文生产。"
+      density="compact"
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" size="sm" asChild className="w-fit">
@@ -601,7 +785,7 @@ function ArchitectureManager() {
             ) : (
               <Eye className="mr-1.5 h-4 w-4" />
             )}
-            {reviewResult ? '查看审阅结果' : '审阅架构'}
+            审阅架构
           </Button>
           <Button size="sm" onClick={startCreate}>
             <Plus className="mr-1.5 h-4 w-4" />
@@ -610,245 +794,376 @@ function ArchitectureManager() {
         </div>
       }
     >
-      <StatGrid items={stats} />
+      <StatGrid items={stats} compact />
 
       <SectionCard
         title="结构编辑区"
-        description="这里优先处理全本、卷、章三级结构。先把骨架写顺，后面的生成结果会稳定很多。">
-        <div className="space-y-6">
-          {/* Full Architecture */}
-          {fullArch ? (
-            <Card className="border-sky-200/60 bg-sky-50/40">
-              <CardContent className="p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-2">
-                    <Badge variant="secondary" className="bg-sky-100 text-sky-700 hover:bg-sky-100">
-                      全本
-                    </Badge>
-                    <h3 className="text-xl font-semibold text-slate-900">{fullArch.title}</h3>
+        description="左侧按全本、卷、章组织结构；右侧只处理当前选中的架构。"
+        className="rounded-lg"
+        contentClassName="px-0 pb-0"
+      >
+        <div className="grid min-h-[620px] border-t border-border lg:grid-cols-[360px_minmax(0,1fr)]">
+          <aside className="border-b border-border bg-secondary/35 p-3 lg:border-r lg:border-b-0">
+            {!fullArch ? (
+              <div className="rounded-lg border border-dashed border-primary/25 bg-card/75 px-4 py-8 text-center text-sm text-muted-foreground">
+                还没有全本架构。建议先建立总纲。
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedArchId(fullArch.id)}
+                  className={`w-full rounded-md border px-3 py-2 text-left transition ${
+                    selectedArch?.id === fullArch.id
+                      ? 'border-primary bg-card shadow-sm shadow-primary/10'
+                      : 'border-transparent hover:border-primary/20 hover:bg-card/70'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-slate-900">{fullArch.title}</span>
+                    <Badge variant="secondary" className="shrink-0">全本</Badge>
                   </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => startEdit(fullArch)}>
-                      <Pencil className="h-4 w-4" />
-                      编辑
-                    </Button>
-                    <Button variant="destructive" size="sm" onClick={() => handleDelete(fullArch)}>
-                      <Trash2 className="h-4 w-4" />
-                      删除
-                    </Button>
-                  </div>
-                </div>
-                <ExpandableText
-                  text={fullArch.plot_outline}
-                  maxLength={120}
-                  className="mt-4 text-sm leading-7 text-slate-600"
-                />
-                {!fullArch.plot_outline && (
-                  <p className="mt-4 text-sm leading-7 text-slate-600">还没有全本情节大纲。</p>
-                )}
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-5 py-8 text-center">
-              <p className="text-lg font-semibold text-slate-800">还没有全本架构</p>
-              <p className="mt-2 text-sm leading-6 text-slate-500">建议先建立总纲，再去拆卷和章节。</p>
-            </div>
-          )}
+                </button>
 
-          {/* Volume Architectures */}
-          {volumes.length > 0 && (
-            <div className="space-y-4">
-              {volumes.map((volume) => {
-                const volumeChapterArchs = chapterArchs.filter((arch) => arch.parent_id === volume.id);
-                const isExpanded = expandedVolumes[volume.id] === true;
-                return (
-                  <Card key={volume.id} className="shadow-sm">
-                    <CardContent className="p-5">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="space-y-2">
-                          <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
-                            卷
-                          </Badge>
-                          <h3 className="text-lg font-semibold text-slate-900">{volume.title}</h3>
-                          <p className="text-sm text-slate-500">
-                            {volumeChapterArchs.length} 条章架构
-                          </p>
+                <div className="space-y-2">
+                  {volumes.map((volume, volumeIndex) => {
+                    const volumeChapterArchs = chapterArchs.filter((arch) => arch.parent_id === volume.id);
+                    const isVolumeExpanded = expandedVolumes[volume.id] ?? volumeIndex === 0;
+                    return (
+                      <div key={volume.id} className="rounded-md border border-border/80 bg-card/82">
+                        <div
+                          className={`flex items-center gap-1 ${
+                            selectedArch?.id === volume.id ? 'bg-primary text-primary-foreground' : ''
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            aria-expanded={isVolumeExpanded}
+                            onClick={() => {
+                              setSelectedArchId(volume.id);
+                              toggleVolumeExpand(volume.id);
+                            }}
+                            className={`flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-2 text-left transition ${
+                              selectedArch?.id === volume.id ? '' : 'hover:bg-accent/45'
+                            }`}
+                          >
+                            <span className="min-w-0 truncate text-sm font-semibold">
+                              {volumeIndex + 1}. {volume.title}
+                            </span>
+                            <span className={`shrink-0 text-xs ${selectedArch?.id === volume.id ? 'text-primary-foreground/75' : 'text-muted-foreground'}`}>
+                              {volumeChapterArchs.length} 章
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            aria-expanded={isVolumeExpanded}
+                            aria-label={`${isVolumeExpanded ? '收起' : '展开'}${volume.title}`}
+                            title={isVolumeExpanded ? '收起卷章节' : '展开卷章节'}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleVolumeExpand(volume.id);
+                            }}
+                            className={`mr-2 flex size-7 shrink-0 items-center justify-center rounded-md transition ${
+                              selectedArch?.id === volume.id
+                                ? 'text-primary-foreground/80 hover:bg-primary-foreground/15 hover:text-primary-foreground'
+                                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                            }`}
+                          >
+                            {isVolumeExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                          </button>
                         </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {volumeChapterArchs.length > 0 && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => toggleVolumeExpand(volume.id)}
-                              className="text-slate-600"
-                            >
-                              {isExpanded ? (
-                                <>
-                                  <ChevronUp className="mr-1 h-4 w-4" />
-                                  收起
-                                </>
-                              ) : (
-                                <>
-                                  <ChevronDown className="mr-1 h-4 w-4" />
-                                  展开 ({volumeChapterArchs.length})
-                                </>
-                              )}
-                            </Button>
-                          )}
+                        {isVolumeExpanded && (
+                          <div className="border-t border-slate-100 py-1">
+                            {volumeChapterArchs.map((chapterArch) => {
+                              const existingChapter = getChapterByArchId(chapterArch.id);
+                              const projectedChapterNumber = projectedChapterNumberByArchId.get(chapterArch.id);
+                              return (
+                                <button
+                                  key={chapterArch.id}
+                                  type="button"
+                                  onClick={() => setSelectedArchId(chapterArch.id)}
+                                  className={`grid w-full grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-2 px-3 py-1.5 text-left text-sm transition ${
+                                    selectedArch?.id === chapterArch.id
+                                      ? 'bg-secondary text-secondary-foreground'
+                                      : 'text-slate-600 hover:bg-accent/35'
+                                  }`}
+                                >
+                                  <span className="text-xs tabular-nums text-slate-400">
+                                    {projectedChapterNumber ? `第${existingChapter?.chapter_number || projectedChapterNumber}` : '章'}
+                                  </span>
+                                  <span className="truncate">{chapterArch.title}</span>
+                                  {existingChapter ? (
+                                    <span className="size-2 rounded-full bg-emerald-400" title="已生成正文" />
+                                  ) : (
+                                    <span className="size-2 rounded-full bg-slate-300" title="未生成正文" />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </aside>
+
+          <section
+            ref={detailPanelRef}
+            className={`min-w-0 p-4 transition ${
+              workflowMode === 'chapterBatch'
+                ? 'bg-primary/5 ring-1 ring-primary/15'
+                : ''
+            }`}
+          >
+            {!selectedArch ? (
+              <div className="flex min-h-[520px] items-center justify-center rounded-lg border border-dashed border-primary/25 bg-secondary/35 text-sm text-muted-foreground">
+                选择左侧架构节点查看详情。
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {workflowMode === 'chapterBatch' && selectedArch?.level === 'volume' && (
+                  <div className="space-y-4 rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-widest text-emerald-700">批量拆章流程</p>
+                        <h4 className="mt-1 text-lg font-semibold text-slate-900">为「{selectedArch.title}」生成章架构草稿</h4>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setWorkflowMode('details');
+                            setGeneratedChapters([]);
+                            setSelectedVolumeId('');
+                          }}
+                          disabled={batchGenerating}
+                        >
+                          返回详情
+                        </Button>
+                        <Button size="sm" onClick={handleGenerateChapterBatch} disabled={batchGenerating}>
+                          {batchGenerating && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                          {generatedChapters.length > 0 ? '重新生成草稿' : '生成章架构草稿'}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {generatedChapters.length === 0 ? (
+                      <div className="rounded-lg border border-emerald-100 bg-white/80 p-4 text-sm text-slate-600">
+                        这里会在右侧直接展示生成后的章架构草稿。你可以逐条改标题和概括，确认后再点击底部“保存架构”。
+                      </div>
+                    ) : (
+                      <>
+                        <div className="rounded-lg border border-emerald-100 bg-white/80 p-4 text-sm text-slate-600">
+                          已生成 {generatedChapters.length} 条章架构草稿。你可以先在右侧逐条调整，再点击底部“保存架构”。
+                        </div>
+                        <div className="space-y-3">
+                          {generatedChapters.map((chapter, index) => (
+                            <Card key={`${chapter.chapterNumber}-${index}`} className="bg-white/90">
+                              <CardContent className="p-4">
+                                <div className="grid gap-3 md:grid-cols-[auto_1fr] md:items-center">
+                                  <Badge variant="secondary" className="justify-center">
+                                    第 {chapter.chapterNumber} 章
+                                  </Badge>
+                                  <Input
+                                    value={chapter.title}
+                                    onChange={(event) => updateGeneratedChapter(index, 'title', event.target.value)}
+                                    placeholder="章节标题"
+                                  />
+                                </div>
+                                <Textarea
+                                  value={chapter.plot_summary}
+                                  onChange={(event) => updateGeneratedChapter(index, 'plot_summary', event.target.value)}
+                                  rows={3}
+                                  className="mt-3"
+                                  placeholder="章节概括"
+                                />
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+                        <div className="flex justify-end">
+                          <Button onClick={handleSaveChapterBatch}>
+                            保存架构
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant={selectedArch.level === 'full' ? 'secondary' : 'outline'}
+                        className={
+                          selectedArch.level === 'volume'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : selectedArch.level === 'chapter'
+                              ? 'border-sky-200 bg-sky-50 text-sky-700'
+                              : ''
+                        }
+                      >
+                        {selectedArch.level === 'full' ? '全本' : selectedArch.level === 'volume' ? '卷' : '章'}
+                      </Badge>
+                      {selectedArch.level === 'chapter' && (() => {
+                        const existingChapter = getChapterByArchId(selectedArch.id);
+                        return existingChapter ? (
+                          <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">已生成正文</Badge>
+                        ) : (
+                          <Badge variant="outline">未生成正文</Badge>
+                        );
+                      })()}
+                    </div>
+                    <h3 className="text-2xl font-semibold tracking-tight text-slate-950">{selectedArch.title}</h3>
+                    {selectedChildren.length > 0 && (
+                      <p className="text-sm text-slate-500">
+                        下级结构：{selectedChildren.length} 条
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {selectedArch.level === 'volume' && (() => {
+                      const volumeChapterArchs = chapterArchs.filter((arch) => arch.parent_id === selectedArch.id);
+                      return (
+                        <>
                           {volumeChapterArchs.length > 0 && (
                             <Button
                               variant="secondary"
                               size="sm"
-                              onClick={() => handleBatchGenerateContent(volume)}
+                              onClick={() => handleBatchGenerateContent(selectedArch)}
                               disabled={batchGeneratingContent}
                             >
-                              {batchGeneratingContent ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Sparkles className="h-4 w-4" />
-                              )}
+                              {batchGeneratingContent ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                               批量生成正文
                             </Button>
                           )}
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={async () => {
-                              if (volumeChapterArchs.length > 0) {
-                                const confirmed = await feedback.confirm({
-                                  title: `重新生成「${volume.title}」的章架构？`,
-                                  message: `该卷已有 ${volumeChapterArchs.length} 条章架构，重新生成会删除该卷下现有章架构，以及这些章架构关联的正文和历史记录。`,
-                                  note: '这是不可恢复的批量替换操作，请先确认不需要保留当前正文。',
-                                  confirmText: '确认重新生成',
-                                  cancelText: '取消',
-                                  variant: 'danger',
-                                });
-                                if (!confirmed) return;
-                              }
-                              setSelectedVolumeId(volume.id.toString());
-                              setShowChapterBatch(true);
+                            onClick={() => {
+                              setSelectedVolumeId(selectedArch.id.toString());
                               setGeneratedChapters([]);
+                              setWorkflowMode('chapterBatch');
                             }}
                           >
                             <FileText className="h-4 w-4" />
-                            {volumeChapterArchs.length > 0 ? '重新批量生成章架构' : '批量生成章架构'}
+                            {volumeChapterArchs.length > 0 ? '进入拆章流程' : '批量拆章'}
                           </Button>
-                          <Button variant="outline" size="sm" onClick={() => startEdit(volume)}>
-                            <Pencil className="h-4 w-4" />
-                            编辑
+                        </>
+                      );
+                    })()}
+                    {selectedArch.level === 'chapter' && (() => {
+                      const existingChapter = getChapterByArchId(selectedArch.id);
+                      return existingChapter ? (
+                        <>
+                          <Button variant="outline" size="sm" asChild>
+                            <Link to={`/chapters/${existingChapter.id}`}>
+                              <FileText className="h-4 w-4" />
+                              打开正文
+                            </Link>
                           </Button>
-                          <Button variant="destructive" size="sm" onClick={() => handleDelete(volume)}>
-                            <Trash2 className="h-4 w-4" />
-                            删除
-                          </Button>
-                        </div>
-                      </div>
-                      <ExpandableText
-                        text={volume.plot_outline}
-                        maxLength={120}
-                        className="mt-4 text-sm leading-7 text-slate-600"
-                      />
-                      {!volume.plot_outline && (
-                        <p className="mt-4 text-sm leading-7 text-slate-600">还没有卷情节概括。</p>
-                      )}
-
-                      {/* Chapter Architectures within Volume */}
-                      {volumeChapterArchs.length > 0 ? (
-                        isExpanded && (
-                          <div className="mt-5 grid gap-3">
-                            {volumeChapterArchs.map((chapterArch, index) => {
-                              const existingChapter = getChapterByArchId(chapterArch.id);
-                              const projectedChapterNumber = projectedChapterNumberByArchId.get(chapterArch.id);
-                              return (
-                                <Card key={chapterArch.id} className="border-slate-200/60 bg-slate-50/50">
-                                  <CardContent className="p-4">
-                                    <div className="flex items-start gap-3">
-                                      <div className="min-w-0 flex-1">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                          {projectedChapterNumber ? (
-                                            <Badge variant={existingChapter ? 'secondary' : 'outline'} className="shrink-0">
-                                              第{existingChapter?.chapter_number || projectedChapterNumber}章
-                                            </Badge>
-                                          ) : null}
-                                          <button
-                                            type="button"
-                                            onClick={() => handleOpenChapterArch(chapterArch)}
-                                            className="text-left text-sm font-semibold text-slate-900 underline-offset-4 hover:text-primary hover:underline"
-                                          >
-                                            {chapterArch.title}
-                                          </button>
-                                          {existingChapter && (
-                                            <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 shrink-0">
-                                              已生成正文
-                                            </Badge>
-                                          )}
-                                        </div>
-                                        <p className="mt-2 text-sm leading-6 text-slate-600 line-clamp-2">
-                                          {chapterArch.plot_outline || chapterArch.plot_summary || '还没有内容概括。'}
-                                        </p>
-                                      </div>
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        {existingChapter && (
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-8 w-8"
-                                            title="发布章节"
-                                            onClick={() => setPublishTarget({
-                                              chapterId: existingChapter.id,
-                                              chapterTitle: existingChapter.title || chapterArch.title,
-                                              publishResult: existingChapter.publish_result,
-                                            })}
-                                          >
-                                            <Upload className="h-4 w-4" />
-                                          </Button>
-                                        )}
-                                        {existingChapter ? (
-                                          <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                                            <Link to={`/chapters/${existingChapter.id}`}>
-                                              <FileText className="h-4 w-4" />
-                                            </Link>
-                                          </Button>
-                                        ) : (
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-8 w-8"
-                                            onClick={() => handleGenerateChapterContent(chapterArch)}
-                                            disabled={generatingContent === chapterArch.id}
-                                          >
-                                            {generatingContent === chapterArch.id ? (
-                                              <Loader2 className="h-4 w-4 animate-spin" />
-                                            ) : (
-                                              <Sparkles className="h-4 w-4" />
-                                            )}
-                                          </Button>
-                                        )}
-                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEdit(chapterArch)}>
-                                          <Pencil className="h-4 w-4" />
-                                        </Button>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(chapterArch)}>
-                                          <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  </CardContent>
-                                </Card>
-                              );
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPublishTarget({
+                              chapterId: existingChapter.id,
+                              chapterTitle: existingChapter.title || selectedArch.title,
+                              publishResult: existingChapter.publish_result,
                             })}
-                          </div>
-                        )
+                          >
+                            <Upload className="h-4 w-4" />
+                            发布
+                          </Button>
+                        </>
                       ) : (
-                        <div className="mt-5 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-5 text-sm text-slate-500">
-                          这个卷还没有章架构，可以用右上角的"批量生成章架构"快速拆章。
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleGenerateChapterContent(selectedArch)}
+                          disabled={generatingContent === selectedArch.id}
+                        >
+                          {generatingContent === selectedArch.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                          生成正文
+                        </Button>
+                      );
+                    })()}
+                    <Button variant="outline" size="sm" onClick={() => startEdit(selectedArch)}>
+                      <Pencil className="h-4 w-4" />
+                      编辑
+                    </Button>
+                    <Button variant="destructive" size="sm" onClick={() => handleDelete(selectedArch)}>
+                      <Trash2 className="h-4 w-4" />
+                      删除
+                    </Button>
+                  </div>
+                </div>
+
+                <div
+                  className={`grid gap-4 ${
+                    selectedArch.level === 'chapter'
+                      ? 'grid-cols-1'
+                      : 'xl:grid-cols-[minmax(0,1fr)_280px]'
+                  }`}
+                >
+                  <div className="space-y-4">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">情节大纲</p>
+                      {selectedArch.plot_outline || selectedArch.plot_summary ? (
+                        <div className="prose prose-slate max-w-none text-sm leading-7 text-slate-700">
+                          <ReactMarkdown>
+                            {selectedArch.plot_outline || selectedArch.plot_summary}
+                          </ReactMarkdown>
                         </div>
+                      ) : (
+                        <p className="text-sm leading-7 text-slate-500">还没有内容概括。</p>
                       )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
+                    </div>
+
+                    {selectedArch.level === 'chapter' && (() => {
+                      const existingChapter = getChapterByArchId(selectedArch.id);
+                      return (
+                        <div className="rounded-lg border border-slate-200 bg-white p-4">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">正文内容</p>
+                            {existingChapter ? (
+                              <Button variant="outline" size="sm" asChild>
+                                <Link to={`/chapters/${existingChapter.id}?edit=1`}>
+                                  <Pencil className="mr-1.5 h-4 w-4" />
+                                  编辑正文
+                                </Link>
+                              </Button>
+                            ) : null}
+                          </div>
+                          {existingChapter?.content?.trim() ? (
+                            <div className="max-h-[520px] overflow-y-auto rounded-md border border-slate-100 bg-slate-50/60 p-4 text-sm leading-7 whitespace-pre-wrap text-slate-700">
+                              {existingChapter.content}
+                            </div>
+                          ) : (
+                            <p className="text-sm leading-7 text-slate-500">这条章架构还没有生成正文。</p>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {selectedArch.level !== 'chapter' && (
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-slate-200 bg-white p-3">
+                        <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">下级结构</p>
+                        <p className="mt-2 text-2xl font-semibold tabular-nums">{selectedChildren.length}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
         </div>
       </SectionCard>
 
@@ -1002,125 +1317,6 @@ function ArchitectureManager() {
         </DialogContent>
       </Dialog>
 
-      {/* Batch Chapter Generation Dialog */}
-      <Dialog
-        open={showChapterBatch}
-        onOpenChange={(open) => !open && closeBatchDialog()}
-      >
-        <DialogContent className="sm:max-w-5xl" showCloseButton={!batchGenerating}>
-          <DialogHeader>
-            <DialogTitle>批量生成章架构</DialogTitle>
-            <DialogDescription>
-              {selectedVolumeId
-                ? '将为选中的卷生成一批可编辑的章概括。生成后建议快速扫一遍标题和承接关系。'
-                : '先选卷，再生成一批可编辑的章概括。生成后建议快速扫一遍标题和承接关系。'}
-            </DialogDescription>
-          </DialogHeader>
-
-          {!selectedVolumeId && (
-            <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
-              <div className="space-y-2">
-                <Label>选择卷架构</Label>
-                <Select value={selectedVolumeId} onValueChange={setSelectedVolumeId}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="请选择卷架构">
-                      {(value) => volumes.find((v) => v.id.toString() === value)?.title ?? null}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {volumes.map((volume) => (
-                      <SelectItem key={volume.id} value={volume.id.toString()}>
-                        {volume.title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                onClick={handleGenerateChapterBatch}
-                disabled={batchGenerating || !selectedVolumeId}
-              >
-                {batchGenerating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-                生成章架构草稿
-              </Button>
-            </div>
-          )}
-
-          {selectedVolumeId && (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">目标卷：</span>
-                <Badge variant="secondary">
-                  {volumes.find((v) => v.id.toString() === selectedVolumeId)?.title}
-                </Badge>
-              </div>
-              <Button
-                onClick={handleGenerateChapterBatch}
-                disabled={batchGenerating}
-              >
-                {batchGenerating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-                生成章架构草稿
-              </Button>
-            </div>
-          )}
-
-          {generatedChapters.length > 0 && (
-            <ScrollArea className="mt-4 max-h-[400px]">
-              <div className="space-y-3 pr-4">
-                {generatedChapters.map((chapter, index) => (
-                  <Card key={`${chapter.chapterNumber}-${index}`} className="bg-slate-50/50">
-                    <CardContent className="p-4">
-                      <div className="grid gap-3 md:grid-cols-[auto_1fr] md:items-center">
-                        <Badge variant="secondary" className="justify-center">
-                          第 {chapter.chapterNumber} 章
-                        </Badge>
-                        <Input
-                          value={chapter.title}
-                          onChange={(event) => updateGeneratedChapter(index, 'title', event.target.value)}
-                          placeholder="章节标题"
-                        />
-                      </div>
-                      <Textarea
-                        value={chapter.plot_summary}
-                        onChange={(event) => updateGeneratedChapter(index, 'plot_summary', event.target.value)}
-                        rows={3}
-                        className="mt-3"
-                        placeholder="章节概括"
-                      />
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </ScrollArea>
-          )}
-
-          <Separator />
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={closeBatchDialog}
-              disabled={batchGenerating}
-            >
-              关闭
-            </Button>
-            {generatedChapters.length > 0 && (
-              <Button onClick={handleSaveChapterBatch}>
-                保存全部 {generatedChapters.length} 章
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Content Preview Dialog */}
       <Dialog open={showContentPreview} onOpenChange={(open) => !open && closePreview()}>
         <DialogContent className="sm:max-w-5xl">
@@ -1163,198 +1359,6 @@ function ArchitectureManager() {
         </DialogContent>
       </Dialog>
 
-      {/* Architecture Review Dialog */}
-      <Dialog open={showReviewDialog} onOpenChange={(open) => !open && setShowReviewDialog(false)}>
-        <DialogContent className="sm:max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>架构审阅结果</DialogTitle>
-            <DialogDescription>
-              AI 已审阅完整架构，以下是发现的问题和改进建议。
-            </DialogDescription>
-          </DialogHeader>
-
-          {reviewResult && (
-            <ScrollArea className="max-h-[500px]">
-              <div className="space-y-6 pr-4">
-                {/* Overall Assessment */}
-                <div className="rounded-lg border bg-slate-50/50 p-4">
-                  <h4 className="mb-2 font-semibold">整体评价</h4>
-                  <p className="text-sm text-slate-600">{reviewResult.overallAssessment}</p>
-                </div>
-
-                {/* Issues */}
-                {reviewResult.issues && reviewResult.issues.length > 0 && (
-                  <div className="space-y-3">
-                    <h4 className="font-semibold">发现的问题</h4>
-                    {reviewResult.issues.map((issue, index) => (
-                      <Card key={index} className="border-l-4 border-l-amber-400">
-                        <CardContent className="p-4">
-                          <div className="mb-2 flex items-center gap-2">
-                            <Badge
-                              variant={
-                                issue.severity === 'high'
-                                  ? 'destructive'
-                                  : issue.severity === 'medium'
-                                    ? 'default'
-                                    : 'secondary'
-                              }
-                            >
-                              {issue.severity === 'high' ? '严重' : issue.severity === 'medium' ? '中等' : '轻微'}
-                            </Badge>
-                            <Badge variant="outline">{issue.type}</Badge>
-                            {issue.location && (
-                              <span className="text-xs text-muted-foreground">{issue.location}</span>
-                            )}
-                          </div>
-                          <p className="mb-2 text-sm font-medium">{issue.description}</p>
-                          <p className="text-sm text-slate-600">
-                            <span className="font-medium">建议：</span>
-                            {issue.suggestion}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-
-                {/* Improvement Suggestions */}
-                {reviewResult.improvementSuggestions && (
-                  <div className="rounded-lg border bg-slate-50/50 p-4">
-                    <h4 className="mb-2 font-semibold">整体改进建议</h4>
-                    <p className="text-sm text-slate-600">{reviewResult.improvementSuggestions}</p>
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
-          )}
-
-          <Separator />
-
-          <DialogFooter className="flex-col gap-2 sm:flex-row">
-            <Button variant="outline" onClick={() => setShowReviewDialog(false)}>
-              关闭
-            </Button>
-            <Button variant="ghost" onClick={handleClearReviewResult}>
-              重新审阅
-            </Button>
-            <Button
-              onClick={() => {
-                setShowReviewDialog(false);
-                setShowRewriteDialog(true);
-              }}
-              disabled={!reviewResult}
-            >
-              <RefreshCw className="mr-1.5 h-4 w-4" />
-              一键更改
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Review Confirm Dialog */}
-      <Dialog open={showReviewConfirmDialog} onOpenChange={(open) => !open && setShowReviewConfirmDialog(false)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>开始架构审阅</DialogTitle>
-            <DialogDescription>
-              审阅过程会分析全本架构、卷架构和章架构的完整性和合理性，可能需要几分钟时间。
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="rounded-lg border bg-amber-50/50 p-4">
-            <p className="text-sm text-amber-800">
-              <strong>提示：</strong>审阅完成后，结果会自动保存。你可以随时查看审阅结果，直到你决定重新审阅或应用更改。
-            </p>
-          </div>
-
-          <DialogFooter className="flex-col gap-2 sm:flex-row">
-            <Button variant="outline" onClick={() => setShowReviewConfirmDialog(false)}>
-              取消
-            </Button>
-            <Button onClick={handleStartReview} disabled={reviewLoading}>
-              {reviewLoading && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-              开始审阅
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Architecture Rewrite Dialog */}
-      <Dialog open={showRewriteDialog} onOpenChange={(open) => !open && setShowRewriteDialog(false)}>
-        <DialogContent className="sm:max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>架构优化</DialogTitle>
-            <DialogDescription>
-              AI 将根据审阅意见优化架构。你可以添加额外的要求来指导优化方向。
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>额外要求（可选）</Label>
-              <Textarea
-                value={rewritePrompt}
-                onChange={(e) => setRewritePrompt(e.target.value)}
-                placeholder="例如：请加强主角的成长弧线；第三卷的高潮需要更激烈一些..."
-                rows={3}
-              />
-            </div>
-
-            {rewriteResult && (
-              <ScrollArea className="max-h-[400px] rounded-lg border bg-slate-50/50 p-4">
-                <div className="space-y-4">
-                  {rewriteResult.fullArchitecture && (
-                    <div>
-                      <h4 className="mb-2 font-semibold">全本架构</h4>
-                      <p className="text-sm font-medium">{rewriteResult.fullArchitecture.title}</p>
-                      <p className="text-sm text-slate-600">
-                        {rewriteResult.fullArchitecture.plotOutline}
-                      </p>
-                    </div>
-                  )}
-
-                  {rewriteResult.volumes && rewriteResult.volumes.length > 0 && (
-                    <div>
-                      <h4 className="mb-2 font-semibold">卷架构预览</h4>
-                      <div className="space-y-2">
-                        {rewriteResult.volumes.map((vol, idx) => (
-                          <div key={idx} className="rounded border bg-white p-3">
-                            <p className="text-sm font-medium">
-                              {idx + 1}. {vol.title}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              {vol.chapters?.length || 0} 章
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
-            )}
-          </div>
-
-          <Separator />
-
-          <DialogFooter className="flex-col gap-2 sm:flex-row">
-            <Button variant="outline" onClick={() => setShowRewriteDialog(false)}>
-              取消
-            </Button>
-            {!rewriteResult ? (
-              <Button onClick={handleRewriteArchitectures} disabled={rewriteLoading}>
-                {rewriteLoading && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                开始优化
-              </Button>
-            ) : (
-              <Button onClick={handleApplyRewrite} disabled={applyingChanges}>
-                {applyingChanges && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                应用更改
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       <PublishDialog
         open={!!publishTarget}
         onClose={() => setPublishTarget(null)}

@@ -4,6 +4,7 @@ import cors from 'cors';
 import * as events from 'events';
 import { initDatabase } from './models/sequelize';
 import * as scheduleService from './services/scheduleService';
+import * as recurringTaskService from './services/recurringTaskService';
 
 events.setMaxListeners(100);
 
@@ -50,15 +51,28 @@ interface BootstrapOptions {
   port: number | string;
   initDatabase: () => Promise<void>;
   initScheduledJobs: () => void;
+  initRecurringJobs: () => Promise<void>;
   logger?: Console;
 }
 
 function createBootstrap(options: BootstrapOptions) {
   return async function bootstrap() {
-    const { app: serverApp, port, initDatabase: initDb, initScheduledJobs, logger = console } = options;
+    const {
+      app: serverApp,
+      port,
+      initDatabase: initDb,
+      initScheduledJobs,
+      initRecurringJobs,
+      logger = console,
+    } = options;
     try {
       await initDb();
       initScheduledJobs();
+      try {
+        await initRecurringJobs();
+      } catch (recurringError) {
+        logger.error('周期任务初始化失败:', recurringError);
+      }
       serverApp.listen(port, () => {
         logger.log(`服务器运行在端口 ${port}`);
         logger.log(`环境: ${process.env.NODE_ENV || 'development'}`);
@@ -74,7 +88,8 @@ const bootstrap = createBootstrap({
   app,
   port: PORT,
   initDatabase,
-  initScheduledJobs: scheduleService.initScheduledJobs
+  initScheduledJobs: scheduleService.initScheduledJobs,
+  initRecurringJobs: recurringTaskService.initRecurringJobs
 });
 
 if (require.main === module) {

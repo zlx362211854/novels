@@ -5,7 +5,10 @@ import * as chapterService from '../services/chapterService';
 import * as architectureService from '../services/architectureService';
 import * as architectureAiService from '../services/architectureAiService';
 import * as architectureReviewService from '../services/architectureReviewService';
+import * as recurringTaskService from '../services/recurringTaskService';
+import * as exportService from '../services/exportService';
 import { chapterGenerationGraph } from '../ai/graphs/chapterGenerationGraph';
+import { novelBootstrapGraph } from '../ai/graphs/novelBootstrapGraph';
 import * as aiStatus from '../services/aiStatusService';
 import { Novel, Chapter, Architecture } from '../models/sequelize';
 
@@ -13,12 +16,32 @@ const router = Router();
 
 router.post('/', async (req: Request, res: Response) => {
     try {
-        const { title, description, genre, publishConfig } = req.body;
+        const { title, description, genre, publishConfig, aiConfig } = req.body;
         if (!title) {
             return res.status(400).json({ error: '标题不能为空' });
         }
-        const novel = await novelService.create({ title, description, genre, publishConfig });
+        const novel = await novelService.create({ title, description, genre, publishConfig, aiConfig });
         res.status(201).json(novel);
+    } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+    }
+});
+
+router.post('/bootstrap', async (req: Request, res: Response) => {
+    try {
+        const { prompt, constraints } = req.body;
+        if (!prompt || !String(prompt).trim()) {
+            return res.status(400).json({ error: 'prompt 不能为空' });
+        }
+        const taskId = randomUUID();
+        const result = await novelBootstrapGraph.invoke({
+            prompt: String(prompt).trim(),
+            constraints: constraints || {},
+            taskId,
+            draft: null,
+            result: null,
+        });
+        res.status(201).json({ taskId, ...result.result });
     } catch (error) {
         res.status(500).json({ error: (error as Error).message });
     }
@@ -47,8 +70,8 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 router.put('/:id', async (req: Request, res: Response) => {
     try {
-        const { title, description, genre, publishConfig } = req.body;
-        const novel = await novelService.update(String(req.params.id), { title, description, genre, publishConfig });
+        const { title, description, genre, publishConfig, aiConfig } = req.body;
+        const novel = await novelService.update(String(req.params.id), { title, description, genre, publishConfig, aiConfig });
         if (!novel) {
             return res.status(404).json({ error: '小说不存在' });
         }
@@ -106,6 +129,20 @@ router.get('/:id/architectures', async (req: Request, res: Response) => {
     try {
         const architectures = await architectureService.findByNovelId(String(req.params.id));
         res.json(architectures);
+    } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+    }
+});
+
+router.get('/:id/export', async (req: Request, res: Response) => {
+    try {
+        const novelId = Number(req.params.id);
+        const scope = typeof req.query.scope === 'string' ? req.query.scope : 'full';
+        const volumeId = req.query.volumeId ? Number(req.query.volumeId) : undefined;
+        const result = await exportService.exportToMarkdown({ novelId, scope, volumeId });
+        res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename=novel-${novelId}.md`);
+        res.send(result);
     } catch (error) {
         res.status(500).json({ error: (error as Error).message });
     }
@@ -207,7 +244,7 @@ router.post('/:id/generate-chapter-content', async (req: Request, res: Response)
         const arch = await Architecture.findByPk(chapterArchId);
         if (!arch) return res.status(404).json({ error: '章架构不存在' });
 
-        const existingChapters = await chapterService.findByNovelId(req.params.id);
+        const existingChapters = await chapterService.findByNovelId(String(req.params.id));
         const maxNum = existingChapters.reduce((m: number, c: any) => Math.max(m, c.chapter_number || 0), 0);
 
         const chapter = await chapterService.create({
@@ -234,6 +271,7 @@ router.post('/:id/generate-chapter-content', async (req: Request, res: Response)
 // 批量生成某卷正文
 router.post('/:id/batch-generate-chapters', async (req: Request, res: Response) => {
     const ac = new AbortController();
+    const taskId = randomUUID();
     res.on('close', () => { if (!res.writableEnded) ac.abort(); });
     try {
         const { volumeId } = req.body;
@@ -244,16 +282,29 @@ router.post('/:id/batch-generate-chapters', async (req: Request, res: Response) 
             order: [['id', 'ASC']],
         });
 
-        const existingChapters = await chapterService.findByNovelId(req.params.id);
+        const volume = await Architecture.findByPk(Number(volumeId));
+        const stepLabels = chapterArchs.map((arch: any, index: number) => `生成第 ${index + 1} 章：${arch.title}`);
+        aiStatus.start(
+            taskId,
+            `批量生成「${volume?.title || '当前卷'}」正文`,
+            stepLabels.length > 0 ? stepLabels : ['检查可生成章节']
+        );
+
+        const existingChapters = await chapterService.findByNovelId(String(req.params.id));
         let maxNum = existingChapters.reduce((m: number, c: any) => Math.max(m, c.chapter_number || 0), 0);
 
         const results = [];
-        for (const arch of chapterArchs) {
+        for (const [index, arch] of chapterArchs.entries()) {
             if (ac.signal.aborted) break;
             try {
+                aiStatus.step(taskId, index, stepLabels[index] || `生成章节 ${index + 1}`);
                 // 如果已有正文跳过
                 const existing = existingChapters.find((c: any) => c.architecture_id === arch.id);
-                if (existing) { results.push({ archId: arch.id, success: true, chapter: existing }); continue; }
+                if (existing) {
+                    aiStatus.setStream(taskId, `已存在正文，跳过「${arch.title}」`);
+                    results.push({ archId: arch.id, success: true, chapter: existing });
+                    continue;
+                }
 
                 const chapter = await chapterService.create({
                     novelId: Number(req.params.id),
@@ -263,19 +314,23 @@ router.post('/:id/batch-generate-chapters', async (req: Request, res: Response) 
                     content: '',
                     status: 'generating',
                 });
-                const taskId = randomUUID();
+                aiStatus.setStream(taskId, `正在生成「${arch.title}」的正文...`);
                 const result = await chapterGenerationGraph.invoke(
-                    { chapterId: chapter.id, signal: ac.signal, taskId },
+                    { chapterId: chapter.id, signal: ac.signal, taskId: null },
                     { signal: ac.signal }
                 );
+                aiStatus.setStream(taskId, `已完成「${arch.title}」`);
                 results.push({ archId: arch.id, success: true, chapter: result.updatedChapter });
             } catch (err: any) {
+                aiStatus.appendStream(taskId, `\n\n「${arch.title}」失败：${err.message}`);
                 results.push({ archId: arch.id, success: false, error: err.message });
             }
         }
+        aiStatus.finish(taskId);
         res.json(results);
     } catch (error) {
         if (ac.signal.aborted) return;
+        aiStatus.error(taskId, (error as Error).message);
         res.status(500).json({ error: (error as Error).message });
     }
 });
@@ -283,8 +338,19 @@ router.post('/:id/batch-generate-chapters', async (req: Request, res: Response) 
 // 审阅架构
 router.post('/:id/review-architectures', async (req: Request, res: Response) => {
     try {
-        const result = await architectureReviewService.reviewArchitectures(Number(req.params.id), req.signal);
+        const result = await architectureReviewService.reviewArchitectures(Number(req.params.id), (req as any).signal);
         res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+    }
+});
+
+// 全书级章架构审阅
+router.post('/:id/review-chapter-architectures', async (req: Request, res: Response) => {
+    try {
+        const taskId = randomUUID();
+        const result = await architectureReviewService.reviewChapterArchitectures(Number(req.params.id), (req as any).signal, taskId);
+        res.json({ taskId, result });
     } catch (error) {
         res.status(500).json({ error: (error as Error).message });
     }
@@ -295,9 +361,42 @@ router.post('/:id/rewrite-architectures', async (req: Request, res: Response) =>
     try {
         const { reviewResult, userPrompt } = req.body;
         const result = await architectureReviewService.rewriteArchitectures(
-            Number(req.params.id), reviewResult, userPrompt || '', req.signal
+            Number(req.params.id), reviewResult, userPrompt || '', (req as any).signal
         );
         res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+    }
+});
+
+// 生成章架构修补方案
+router.post('/:id/repair-chapter-architectures', async (req: Request, res: Response) => {
+    try {
+        const { reviewResult, userPrompt } = req.body;
+        const taskId = randomUUID();
+        const result = await architectureReviewService.repairChapterArchitectures(
+            Number(req.params.id),
+            reviewResult,
+            userPrompt || '',
+            (req as any).signal,
+            taskId
+        );
+        res.json({ taskId, result });
+    } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+    }
+});
+
+// 应用章架构修补方案
+router.post('/:id/apply-chapter-architecture-repair', async (req: Request, res: Response) => {
+    try {
+        const taskId = randomUUID();
+        const result = await architectureReviewService.applyChapterArchitectureRepair(
+            Number(req.params.id),
+            req.body,
+            taskId
+        );
+        res.json({ taskId, result });
     } catch (error) {
         res.status(500).json({ error: (error as Error).message });
     }
@@ -337,6 +436,52 @@ router.post('/:id/apply-rewrite', async (req: Request, res: Response) => {
         res.json({ stats: { updated, created, deleted } });
     } catch (error) {
         res.status(500).json({ error: (error as Error).message });
+    }
+});
+
+// 周期任务（每本小说一个）
+router.get('/:id/recurring-task', async (req: Request, res: Response) => {
+    try {
+        const task = await recurringTaskService.findByNovel(String(req.params.id));
+        res.json(recurringTaskService.serializeTask(task));
+    } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+    }
+});
+
+router.put('/:id/recurring-task', async (req: Request, res: Response) => {
+    try {
+        const { cronExpression, enabled, chaptersPerRun } = req.body || {};
+        if (!cronExpression || typeof cronExpression !== 'string') {
+            return res.status(400).json({ error: 'cronExpression 不能为空' });
+        }
+        const saved = await recurringTaskService.upsert(String(req.params.id), {
+            cronExpression,
+            enabled,
+            chaptersPerRun,
+        });
+        res.json(saved);
+    } catch (error) {
+        res.status(400).json({ error: (error as Error).message });
+    }
+});
+
+router.delete('/:id/recurring-task', async (req: Request, res: Response) => {
+    try {
+        const removed = await recurringTaskService.remove(String(req.params.id));
+        if (!removed) return res.status(404).json({ error: '当前小说还没有周期任务' });
+        res.json({ message: '已删除' });
+    } catch (error) {
+        res.status(400).json({ error: (error as Error).message });
+    }
+});
+
+router.post('/:id/recurring-task/run-now', async (req: Request, res: Response) => {
+    try {
+        const summary = await recurringTaskService.runNow(String(req.params.id));
+        res.json({ summary });
+    } catch (error) {
+        res.status(400).json({ error: (error as Error).message });
     }
 });
 

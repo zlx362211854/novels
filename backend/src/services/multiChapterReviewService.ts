@@ -100,9 +100,7 @@ async function applyDraft(reviewId: string, chapterId: number, accept: boolean):
     await chapter.save();
     draft.status = 'accepted';
 
-    // 后台更新记忆卡，不阻塞用户操作
-    chapterMemoryService.upsertForChapter(chapterId)
-      .catch(err => console.error(`[multi-fix] 记忆卡更新失败 chapterId=${chapterId}`, err.message));
+    await chapterMemoryService.upsertForChapter(chapterId);
   } else {
     draft.status = 'skipped';
   }

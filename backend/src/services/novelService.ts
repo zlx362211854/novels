@@ -1,10 +1,28 @@
 import { sequelize, Novel, Chapter, Architecture, ChapterMemory, ChapterVersion, ScheduledTask, MultiChapterReview } from '../models/sequelize';
+import { parseNovelAiConfig, serializeNovelAiConfig } from '../ai/runtimeConfig';
 
 interface CreateNovelData {
   title: string;
   description?: string;
   genre?: string;
   publishConfig?: any;
+  aiConfig?: any;
+}
+
+function serializeNovel(novel: any): any {
+  if (!novel) return novel;
+  const plain = typeof novel.get === 'function' ? novel.get({ plain: true }) : novel;
+  return {
+    ...plain,
+    publish_config: plain.publish_config ? (() => {
+      try {
+        return JSON.parse(plain.publish_config);
+      } catch {
+        return plain.publish_config;
+      }
+    })() : null,
+    ai_config: parseNovelAiConfig(plain.ai_config),
+  };
 }
 
 async function create(data: CreateNovelData): Promise<Novel> {
@@ -12,21 +30,22 @@ async function create(data: CreateNovelData): Promise<Novel> {
     title: data.title,
     description: data.description || null,
     genre: data.genre || null,
-    publish_config: data.publishConfig ? JSON.stringify(data.publishConfig) : null
+    publish_config: data.publishConfig ? JSON.stringify(data.publishConfig) : null,
+    ai_config: serializeNovelAiConfig(data.aiConfig),
   });
-  return novel;
+  return serializeNovel(novel);
 }
 
 async function findAll(): Promise<Novel[]> {
   const novels = await Novel.findAll({
     order: [['updated_at', 'DESC']]
   });
-  return novels;
+  return novels.map(serializeNovel);
 }
 
 async function findById(id: string | number): Promise<Novel | null> {
   const novel = await Novel.findByPk(id);
-  return novel;
+  return serializeNovel(novel);
 }
 
 async function update(id: string | number, data: Partial<CreateNovelData>): Promise<Novel | null> {
@@ -37,9 +56,10 @@ async function update(id: string | number, data: Partial<CreateNovelData>): Prom
   if (data.description !== undefined) novel.description = data.description;
   if (data.genre !== undefined) novel.genre = data.genre;
   if (data.publishConfig !== undefined) novel.publish_config = JSON.stringify(data.publishConfig || {});
+  if (data.aiConfig !== undefined) novel.ai_config = serializeNovelAiConfig(data.aiConfig);
 
   await novel.save();
-  return novel;
+  return serializeNovel(novel);
 }
 
 async function deleteNovel(id: string | number): Promise<boolean> {

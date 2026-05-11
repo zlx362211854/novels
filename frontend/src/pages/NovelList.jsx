@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { novelApi } from '../services/api';
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
@@ -18,6 +19,7 @@ const getUpdatedTimestamp = (value) => {
 };
 
 function NovelList() {
+  const navigate = useNavigate();
   const feedback = useFeedback();
   const [novels, setNovels] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -130,10 +132,15 @@ function NovelList() {
       title="我的项目"
       description="把创作项目当成一页页可翻阅的工作文档。进入项目后，可以继续拆架构、写章节、回看版本。"
       actions={
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="mr-1.5 h-4 w-4" />
-          创建新项目
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => navigate('/novels/bootstrap')}>
+            AI 创建小说
+          </Button>
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            创建新项目
+          </Button>
+        </div>
       }
     >
       <StatGrid items={stats} />
@@ -154,6 +161,9 @@ function NovelList() {
             <Button onClick={() => setShowCreate(true)} className="mt-6">
               <Plus className="mr-1.5 h-4 w-4" />
               创建第一个项目
+            </Button>
+            <Button variant="secondary" onClick={() => navigate('/novels/bootstrap')} className="mt-3">
+              AI 创建第一部小说
             </Button>
           </div>
         ) : (

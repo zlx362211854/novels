@@ -19,7 +19,18 @@ const STEP_LABELS = {
   '发布到七猫': '正在发布到七猫小说...',
   '发布到番茄': '正在发布到番茄小说...',
   '生成架构内容': 'AI 正在生成架构内容...',
-  '生成章节规划': 'AI 正在规划章节结构...'
+  '生成章节规划': 'AI 正在规划章节结构...',
+  '读取架构上下文': '正在读取全本、卷与章架构...',
+  '审阅章架构': 'AI 正在拉通审阅全书章架构...',
+  '整理审阅结果': '正在整理审阅结果...',
+  '生成修补方案': 'AI 正在生成章架构修补方案...',
+  '整理修补结果': '正在整理修补方案...',
+  '校验修补结果': '正在校验修补方案...',
+  '更新章架构': '正在更新受影响章架构...',
+  '新增章架构': '正在新增章架构...',
+  '完成应用': '正在完成章架构修补应用...',
+  '检查可生成章节': '正在检查本卷可生成的章节...',
+  '执行批量生成': '正在批量生成正文...'
 };
 
 function formatElapsed(seconds) {
@@ -36,6 +47,7 @@ function humanStepLabel(label) {
 export function AiStatusProvider({ children }) {
   const [status, setStatus] = useState(null);
   const [open, setOpen] = useState(false);
+  const [taskPanel, setTaskPanelState] = useState(null);
   const esRef = useRef(null);
   const reconnectTimerRef = useRef(null);
   const lastTaskIdRef = useRef(null);
@@ -91,7 +103,18 @@ export function AiStatusProvider({ children }) {
     status,
     open,
     setOpen: handleSetOpen,
-  }), [status, open]);
+    taskPanel,
+    setTaskPanel(taskId, panel) {
+      setTaskPanelState({ taskId, panel });
+    },
+    clearTaskPanel(taskId) {
+      setTaskPanelState((current) => {
+        if (!current) return null;
+        if (!taskId || current.taskId === taskId) return null;
+        return current;
+      });
+    },
+  }), [status, open, taskPanel]);
 
   return (
     <AiStatusContext.Provider value={value}>
@@ -109,6 +132,7 @@ export function AiStatusBar() {
   const status = context?.status;
   const open = context?.open;
   const setOpen = context?.setOpen;
+  const taskPanel = context?.taskPanel;
   const [currentExpanded, setCurrentExpanded] = useState(true);
   const [historyExpanded, setHistoryExpanded] = useState({});
   const historyLogs = Array.isArray(status?.stepLogs) ? status.stepLogs : [];
@@ -123,10 +147,6 @@ export function AiStatusBar() {
   const isError = status.status === 'error';
   const isRunning = status.status === 'running';
   const stepLabel = humanStepLabel(status.currentStepLabel);
-  const progressPercent = status.steps?.length
-    ? Math.round(((status.currentStep + (isRunning ? 0.5 : 1)) / status.steps.length) * 100)
-    : 0;
-
   return (
     <>
       {!open ? (
@@ -167,21 +187,6 @@ export function AiStatusBar() {
                 </Button>
               </div>
             </div>
-
-            {status.steps?.length ? (
-              <div className="mt-4">
-                <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-                  <span>步骤进度</span>
-                  <span>{Math.min(status.currentStep + 1, status.steps.length)}/{status.steps.length}</span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${isError ? 'bg-destructive' : isDone ? 'bg-green-500' : 'bg-primary'}`}
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-              </div>
-            ) : null}
           </div>
 
           <div className="flex-1 overflow-hidden px-5 py-4">
@@ -259,6 +264,18 @@ export function AiStatusBar() {
                           </div>
                         );
                       })}
+                    </div>
+                  </section>
+                ) : null}
+
+                {taskPanel?.taskId === status.taskId && taskPanel?.panel ? (
+                  <section className="rounded-xl border bg-white">
+                    <div className="border-b px-4 py-3">
+                      <p className="text-sm font-medium">后续操作</p>
+                      <p className="mt-1 text-xs text-muted-foreground">当前任务完成后，可直接在这里继续下一步。</p>
+                    </div>
+                    <div className="px-4 py-4">
+                      {taskPanel.panel}
                     </div>
                   </section>
                 ) : null}

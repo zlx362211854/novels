@@ -14,6 +14,7 @@ function emptyMemoryCard(): any {
     facts: [],
     state_changes: [],
     open_threads: [],
+    time_sequence: [],
     source_excerpt_map: [],
   };
 }

@@ -226,7 +226,8 @@ async function generateFixesNode(state: typeof MultiChapterFixState.State) {
   const llm = await createLLM({
     temperature: 0.7,
     maxTokens: 12000,
-    provider: 'deepseek'
+    graph: 'multiChapterFix',
+    novelId: state.review?.novelId || state.review?.novel_id,
   });
   const drafts: any[] = [];
 

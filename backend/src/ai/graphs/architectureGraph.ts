@@ -122,7 +122,12 @@ ${siblingList}
 
 async function generateNode(state: typeof ArchitectureGenerationState.State) {
   const prompt = buildPrompt(state.novel, state.level, state.title || '', state.parentContext, state.siblingContext, state.volumeNumber, state.plotOutline);
-  const llm = await createLLM({ temperature: 0.8, maxTokens: 40000, provider: 'deepseek' });
+  const llm = await createLLM({
+    temperature: 0.8,
+    maxTokens: 40000,
+    graph: 'architectureGeneration',
+    novelId: state.novelId,
+  });
 
   try {
     const result = await withRetry(
@@ -237,7 +242,12 @@ async function loadBatchContextNode(state: typeof ChapterBatchState.State) {
 
 async function generateBatchNode(state: typeof ChapterBatchState.State) {
   const prompt = buildChapterBatchPrompt(state.novel, state.volume, state.fullArch);
-  const llm = await createLLM({ temperature: 0.8, maxTokens: 40000, provider: 'deepseek' });
+  const llm = await createLLM({
+    temperature: 0.8,
+    maxTokens: 40000,
+    graph: 'chapterBatchGeneration',
+    novelId: state.novelId,
+  });
 
   try {
     const result = await withRetry(

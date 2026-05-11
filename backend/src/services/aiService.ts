@@ -1,5 +1,40 @@
 import { Architecture, Chapter, ChapterMemory } from '../models/sequelize';
 
+const DEFAULT_CHAPTER_GENERATION_PROMPT_TEMPLATE = `你是一位擅写长篇金庸武侠小说的作家，请直接完成本章正文。
+
+{{novelInfoSection}}
+
+## 执行优先级
+1. 先严格遵守“本章架构、用户补充要求、故事圣经硬约束、上一章承接”。
+2. 再参考“历史相关记忆、历史原文证据”保证一致性。
+3. 最后才参考“全本/本卷远场规划”，且不得提前写出尚未发生的情节。
+## 风格与字数
+- 文风严格按照金庸式武侠笔法：语气沉稳，半文半白，侠气,古风与苍凉并存。
+- 对话风格参照金庸式武侠人物对话，人物情感以动作、神态、细节间接流露，避免直白告白与说教。
+- 武打描写重节奏、气势和人物判断，不写流水账式招式堆砌。
+- 场景要有江湖气、风物感和感官细节，允许借景抒情；诗词非必须，只能在情绪自然升高时少量使用。
+- 字数控制在 5000-6000 字之间。
+## 执行规则
+- 只写本章架构明确覆盖的内容，不得提前写后续章节具体事件或人物揭示。
+- 不得新增本章架构未授权的主要人物；路人、店家、守卫等功能性角色只能轻描淡写，不得引出新主线。
+- 所有人物称谓、物品、场景、能力、时间线必须与既有设定一致，尤其注意伤势、位置、关系、道具归属和认知边界。
+- 如果上一章结尾仍在动作、对话或同一场景中，本章开头必须连续衔接；若上一章已自然收束，才可合理转场。
+- 禁止现代口语、网络用语、西化句式、爽文式主角光环和无代价越级碾压。
+- 禁止总结腔、条目腔、说教腔，不要写标题、章号或任何解释性前言。
+
+{{chapterInfo}}
+
+{{userPromptSection}}
+
+{{prevChapterSection}}
+
+{{retrievalContextSection}}
+
+{{farContextSection}}
+
+
+请开始撰写本章正文：`;
+
 function parseJsonField(value: any, fallback: any): any {
   if (!value) return fallback;
   if (typeof value !== 'string') return value;
@@ -347,7 +382,8 @@ function buildChapterPrompt(
   prevChapterContent: any,
   volumeChapterArchs: any[] = [],
   userPrompt: string = '',
-  retrievalContext: any = {}
+  retrievalContext: any = {},
+  promptTemplate: string = ''
 ): string {
   const novelInfoSection = [
     '## 小说信息',
@@ -391,45 +427,34 @@ function buildChapterPrompt(
     .filter(Boolean)
     .join('\n\n');
 
-  return `你是一位擅写长篇武侠小说的作家，请直接完成本章正文。
+  const template = (typeof promptTemplate === 'string' && promptTemplate.trim())
+    ? promptTemplate
+    : DEFAULT_CHAPTER_GENERATION_PROMPT_TEMPLATE;
 
-${novelInfoSection}
+  return renderPromptTemplate(template, {
+    novelInfoSection,
+    chapterInfo,
+    userPromptSection,
+    prevChapterSection,
+    retrievalContextSection,
+    farContextSection,
+  });
+}
 
-## 执行优先级
-1. 先严格遵守“本章架构、用户补充要求、故事圣经硬约束、上一章承接”。
-2. 再参考“历史相关记忆、历史原文证据”保证一致性。
-3. 最后才参考“全本/本卷远场规划”，且不得提前写出尚未发生的情节。
+function renderPromptTemplate(template: string, sections: Record<string, string>): string {
+  let result = template;
+  for (const [key, value] of Object.entries(sections)) {
+    const normalized = typeof value === 'string' ? value.trim() : '';
+    result = result.replace(new RegExp(`{{\\s*${key}\\s*}}`, 'g'), normalized);
+  }
 
-${chapterInfo}
-
-${userPromptSection}
-
-${prevChapterSection}
-
-${retrievalContextSection}
-
-${farContextSection}
-
-## 风格与字数
-- 文风以金庸式武侠笔法为主：全知视角，语气沉稳，半文半白，侠气与苍凉并存。
-- 对话要简洁有力，人物情感以动作、神态、细节间接流露，避免直白告白与说教。
-- 武打描写重节奏、气势和人物判断，不写流水账式招式堆砌。
-- 场景要有江湖气、风物感和感官细节，允许借景抒情；诗词非必须，只能在情绪自然升高时少量使用。
-- 字数控制在 4500-6000 字之间。
-
-## 执行规则
-- 只写本章架构明确覆盖的内容，不得提前写后续章节具体事件或人物揭示。
-- 不得新增本章架构未授权的主要人物；路人、店家、守卫等功能性角色只能轻描淡写，不得引出新主线。
-- 所有人物称谓、物品、场景、能力、时间线必须与既有设定一致，尤其注意伤势、位置、关系、道具归属和认知边界。
-- 如果上一章结尾仍在动作、对话或同一场景中，本章开头必须连续衔接；若上一章已自然收束，才可合理转场。
-- 禁止现代口语、网络用语、西化句式、爽文式主角光环和无代价越级碾压。
-- 禁止总结腔、条目腔、说教腔，不要写标题、章号或任何解释性前言。
-- 章末要留有余味或悬念，但禁止使用“欲知后事如何”之类套语。
-
-请开始撰写本章正文：`;
+  return result
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 export {
+  DEFAULT_CHAPTER_GENERATION_PROMPT_TEMPLATE,
   buildChapterPrompt,
   buildRetrievalContextSection,
   formatPreviousChapterMemory,

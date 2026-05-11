@@ -249,6 +249,7 @@ function StoryBibleManager() {
       eyebrow="Story Bible"
       title={novel ? `${novel.title} · 故事圣经` : '故事圣经'}
       description="把整本书不该写错的设定集中维护。生成章节时，系统会默认把这些条目都作为 RAG 约束使用。"
+      density="compact"
       actions={
         <>
           <Button variant="ghost" size="sm" asChild>
@@ -264,7 +265,7 @@ function StoryBibleManager() {
         </>
       }
     >
-      <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
         <SectionCard
           title="条目列表"
           description={`${entries.length} 条设定，适合先筛选再编辑。`}
@@ -302,7 +303,7 @@ function StoryBibleManager() {
 
             <div className="space-y-3">
               {filteredEntries.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                <div className="rounded-xl border border-dashed border-primary/25 bg-secondary/35 px-4 py-8 text-center text-sm text-muted-foreground">
                   当前筛选下没有条目。
                 </div>
               ) : (
@@ -313,26 +314,26 @@ function StoryBibleManager() {
                       key={entry.id}
                       type="button"
                       onClick={() => handleSelectEntry(entry.id)}
-                      className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                      className={`relative w-full rounded-lg border px-4 py-3 text-left transition ${
                         isActive
-                          ? 'border-slate-900 bg-slate-900 text-white shadow-lg shadow-slate-900/10'
-                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                          ? 'border-primary/30 bg-card shadow-sm shadow-primary/10 before:absolute before:inset-y-3 before:left-0 before:w-1 before:rounded-r-full before:bg-primary'
+                          : 'border-border/80 bg-card/72 hover:border-primary/25 hover:bg-accent/28'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="line-clamp-1 font-semibold">{entry.title || '未命名条目'}</p>
-                          <p className={`mt-1 line-clamp-2 text-xs ${isActive ? 'text-slate-300' : 'text-slate-500'}`}>
+                          <p className="mt-1 line-clamp-2 text-xs text-slate-500">
                             {entry.content || '还没有填写内容。'}
                           </p>
                         </div>
-                        <span className={`shrink-0 text-xs ${isActive ? 'text-slate-300' : 'text-slate-400'}`}>
+                        <span className="shrink-0 text-xs text-slate-400">
                           P{entry.priority ?? 100}
                         </span>
                       </div>
 
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <Badge variant={isActive ? 'secondary' : 'outline'}>{entry.type}</Badge>
+                        <Badge variant="outline">{entry.type}</Badge>
                       </div>
                     </button>
                   );
@@ -344,10 +345,19 @@ function StoryBibleManager() {
 
         <SectionCard
           title={selectedEntry ? '编辑条目' : '故事圣经编辑器'}
-          description={selectedEntry ? '右侧修改后需要手动保存，避免误覆盖。' : '先新建一个条目，再开始编辑设定。'}
+          description={
+            selectedEntry
+              ? dirty
+                ? '有未保存修改，保存后才会进入后续生成约束。'
+                : '当前内容已保存，会参与后续 RAG 约束。'
+              : '先新建一个条目，再开始编辑设定。'
+          }
           actions={
             selectedEntry ? (
               <>
+                <Badge variant={dirty ? 'secondary' : 'outline'} className={dirty ? 'bg-amber-100 text-amber-700' : ''}>
+                  {dirty ? '未保存' : '已保存'}
+                </Badge>
                 <Button variant="outline" size="sm" onClick={handleDelete}>
                   <Trash2 className="mr-1.5 h-4 w-4" />
                   删除
@@ -361,7 +371,7 @@ function StoryBibleManager() {
           }
         >
           {!selectedEntry ? (
-            <div className="flex min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 text-center">
+            <div className="flex min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-primary/25 bg-secondary/35 px-6 text-center">
               <BookMarked className="mb-4 h-10 w-10 text-slate-400" />
               <p className="text-base font-medium text-slate-700">还没有选中条目</p>
               <p className="mt-2 max-w-md text-sm text-slate-500">
@@ -431,7 +441,7 @@ function StoryBibleManager() {
                 />
               </div>
 
-              <Card className="border-slate-200 bg-slate-50/80 shadow-none">
+              <Card className="border-border/80 bg-secondary/35 shadow-none">
                 <CardContent className="space-y-3 py-4">
                   <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
                     <Eye className="h-4 w-4" />
@@ -444,7 +454,7 @@ function StoryBibleManager() {
                 </CardContent>
               </Card>
 
-              <div className="flex items-center justify-between rounded-xl border bg-slate-50 px-4 py-3">
+              <div className="flex items-center justify-between rounded-xl border bg-accent/28 px-4 py-3">
                 <p className="text-sm text-slate-600">
                   {dirty ? '当前有未保存修改。' : '当前内容已与服务器同步。'}
                 </p>

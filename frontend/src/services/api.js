@@ -13,6 +13,7 @@ export const novelApi = {
   getAll: () => api.get('/novels'),
   getById: (id) => api.get(`/novels/${id}`),
   create: (data) => api.post('/novels', data),
+  bootstrap: (data) => api.post('/novels/bootstrap', data),
   update: (id, data) => api.put(`/novels/${id}`, data),
   delete: (id) => api.delete(`/novels/${id}`),
 };
@@ -35,10 +36,16 @@ export const architectureApi = {
     api.post(`/novels/${novelId}/batch-generate-chapters`, { volumeId }),
   reviewArchitectures: (novelId) =>
     api.post(`/novels/${novelId}/review-architectures`),
+  reviewChapterArchitectures: (novelId) =>
+    api.post(`/novels/${novelId}/review-chapter-architectures`),
   rewriteArchitectures: (novelId, reviewResult, userPrompt) =>
     api.post(`/novels/${novelId}/rewrite-architectures`, { reviewResult, userPrompt }),
+  repairChapterArchitectures: (novelId, reviewResult, userPrompt = '') =>
+    api.post(`/novels/${novelId}/repair-chapter-architectures`, { reviewResult, userPrompt }),
   applyRewrite: (novelId, rewriteResult) =>
     api.post(`/novels/${novelId}/apply-rewrite`, rewriteResult),
+  applyChapterArchitectureRepair: (novelId, repairResult) =>
+    api.post(`/novels/${novelId}/apply-chapter-architecture-repair`, repairResult),
 };
 
 export const chapterApi = {
@@ -53,7 +60,7 @@ export const chapterApi = {
   revise: (id, reviewResult, userPrompt = '') => api.post(`/chapters/${id}/revise`, { reviewResult, userPrompt }),
   tune: (id, userPrompt = '') => api.post(`/chapters/${id}/tune`, { userPrompt }),
   getVersions: (id) => api.get(`/chapters/${id}/versions`),
-  restoreVersion: (id, version) => api.post(`/chapters/${id}/restore/${version}`),
+  restoreVersion: (id, version) => api.post(`/chapters/${id}/versions/${version}/restore`),
   getMemory: (id) => api.get(`/chapters/${id}/memory`),
   updateMemory: (id, data) => api.put(`/chapters/${id}/memory`, data),
   regenerateMemory: (id) => api.post(`/chapters/${id}/memory/regenerate`),
@@ -86,6 +93,13 @@ export const scheduleApi = {
   getAll: () => api.get('/schedules'),
   create: (data) => api.post('/schedules', data),
   delete: (id) => api.delete(`/schedules/${id}`),
+};
+
+export const recurringTaskApi = {
+  get: (novelId) => api.get(`/novels/${novelId}/recurring-task`),
+  upsert: (novelId, payload) => api.put(`/novels/${novelId}/recurring-task`, payload),
+  remove: (novelId) => api.delete(`/novels/${novelId}/recurring-task`),
+  runNow: (novelId) => api.post(`/novels/${novelId}/recurring-task/run-now`),
 };
 
 export const configApi = {

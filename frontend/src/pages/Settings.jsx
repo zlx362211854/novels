@@ -4,6 +4,7 @@ import { useFeedback } from '../components/ui/FeedbackProvider';
 import { PageShell, SectionCard } from '../components/ui/PageShell';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import {
@@ -17,17 +18,65 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Settings as SettingsIcon, Eye, EyeOff, Loader2, Globe, LogIn } from 'lucide-react';
 
+const MODEL_OPTIONS = [
+  { value: 'zhipu', label: '智谱 AI' },
+  { value: 'deepseek', label: 'DeepSeek' },
+  { value: 'minimax', label: 'MiniMax' },
+];
+
+const emptyProfile = () => ({ provider: '', model: '', maxTokens: '' });
+
+function normalizeProfile(value, fallbackProvider = '') {
+  if (!value) return { provider: fallbackProvider, model: '', maxTokens: '' };
+  if (typeof value === 'string') return { provider: value, model: '', maxTokens: '' };
+  return {
+    provider: value.provider || fallbackProvider || '',
+    model: value.model || '',
+    maxTokens: value.maxTokens ?? '',
+  };
+}
+
+function serializeProfile(profile) {
+  if (!profile?.provider) return null;
+  const maxTokens = Number(profile.maxTokens);
+  return {
+    provider: profile.provider,
+    model: profile.model?.trim() || undefined,
+    maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? Math.floor(maxTokens) : undefined,
+  };
+}
+
+const GRAPH_MODEL_FIELDS = [
+  { key: 'architectureGeneration', label: '单条架构生成' },
+  { key: 'chapterBatchGeneration', label: '批量章架构生成' },
+  { key: 'chapterGeneration', label: '章节生成' },
+  { key: 'chapterReview', label: '章节审阅' },
+  { key: 'chapterRevision', label: '章节修订' },
+  { key: 'chapterTune', label: '章节微调' },
+  { key: 'memoryExtraction', label: '记忆卡提取' },
+  { key: 'memoryRepair', label: '记忆卡 JSON 修复' },
+  { key: 'memoryTimeSequence', label: '时间序列细化' },
+  { key: 'crossChapterReview', label: '跨章审阅' },
+  { key: 'multiChapterFix', label: '跨章修订' },
+  { key: 'architectureReview', label: '全书章架构审阅' },
+  { key: 'architectureRewrite', label: '全书架构重写' },
+  { key: 'architectureRepair', label: '全书章架构修补' },
+];
+
 function Settings() {
   const feedback = useFeedback();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editForm, setEditForm] = useState({
-    aiModel: 'zhipu',
-    zhipuApiKey: '',
-    deepseekApiKey: '',
-    minimaxApiKey: '',
-    reviewStrictness: 'strict',
-  });
+      aiModel: 'zhipu',
+      aiProfile: emptyProfile(),
+      zhipuApiKey: '',
+      deepseekApiKey: '',
+      minimaxApiKey: '',
+      reviewStrictness: 'strict',
+      graphModels: {},
+      chapterGenerationPromptTemplate: '',
+    });
   const [showZhipuKey, setShowZhipuKey] = useState(false);
   const [showDeepseekKey, setShowDeepseekKey] = useState(false);
   const [showMinimaxKey, setShowMinimaxKey] = useState(false);
@@ -48,10 +97,15 @@ function Settings() {
       ]);
       setEditForm({
         aiModel: configRes.data.aiModel || 'zhipu',
+        aiProfile: normalizeProfile(configRes.data.aiProfile, configRes.data.aiModel || 'zhipu'),
         zhipuApiKey: configRes.data.zhipuApiKey || '',
         deepseekApiKey: configRes.data.deepseekApiKey || '',
         minimaxApiKey: configRes.data.minimaxApiKey || '',
         reviewStrictness: configRes.data.reviewStrictness || 'strict',
+        graphModels: Object.fromEntries(
+          Object.entries(configRes.data.graphModels || {}).map(([key, value]) => [key, normalizeProfile(value)])
+        ),
+        chapterGenerationPromptTemplate: configRes.data.chapterGenerationPromptTemplate || '',
       });
       setAgentBrowserPath(configRes.data.agentBrowserPath || 'agent-browser');
 
@@ -75,10 +129,25 @@ function Settings() {
     try {
       await Promise.all([
         configApi.update('aiModel', editForm.aiModel, '当前使用的AI模型'),
+        configApi.update('aiProfile', serializeProfile(editForm.aiProfile), '当前使用的AI模型详细配置'),
         configApi.update('zhipuApiKey', editForm.zhipuApiKey, '智谱AI API密钥'),
         configApi.update('deepseekApiKey', editForm.deepseekApiKey, 'DeepSeek API密钥'),
         configApi.update('minimaxApiKey', editForm.minimaxApiKey, 'MiniMax API密钥'),
         configApi.update('reviewStrictness', editForm.reviewStrictness, '审核严格度'),
+        configApi.update(
+          'graphModels',
+          Object.fromEntries(
+            Object.entries(editForm.graphModels || {})
+              .map(([key, value]) => [key, serializeProfile(value)])
+              .filter(([, value]) => value)
+          ),
+          '各 graph 的模型覆盖配置'
+        ),
+        configApi.update(
+          'chapterGenerationPromptTemplate',
+          editForm.chapterGenerationPromptTemplate,
+          '章节生成 prompt 模板'
+        ),
       ]);
       feedback.success('配置保存成功！');
     } catch (error) {
@@ -102,6 +171,8 @@ function Settings() {
       eyebrow="Settings"
       title="系统设置"
       description="配置 AI 模型和 API 密钥"
+      density="compact"
+      className="max-w-5xl"
     >
       <Tabs defaultValue="ai-config" className="space-y-6">
         <TabsList>
@@ -123,17 +194,24 @@ function Settings() {
                   <Label htmlFor="ai-model">AI 模型</Label>
                   <Select
                     value={editForm.aiModel}
-                    onValueChange={(value) => setEditForm({ ...editForm, aiModel: value })}
+                    onValueChange={(value) => setEditForm({
+                      ...editForm,
+                      aiModel: value,
+                      aiProfile: {
+                        ...editForm.aiProfile,
+                        provider: value,
+                      },
+                    })}
                   >
                     <SelectTrigger id="ai-model">
                       <SelectValue placeholder="选择 AI 模型">
-                        {(value) => ({ zhipu: '智谱 AI', deepseek: 'DeepSeek' })[value] ?? null}
+                        {(value) => MODEL_OPTIONS.find((option) => option.value === value)?.label ?? null}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="zhipu">智谱 AI</SelectItem>
-                      <SelectItem value="deepseek">DeepSeek</SelectItem>
-                      <SelectItem value="minimax">MiniMax</SelectItem>
+                      {MODEL_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -154,6 +232,42 @@ function Settings() {
                       <SelectItem value="loose">宽松模式</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ai-model-version">模型版本</Label>
+                  <Input
+                    id="ai-model-version"
+                    value={editForm.aiProfile?.model || ''}
+                    onChange={(e) => setEditForm({
+                      ...editForm,
+                      aiProfile: {
+                        ...editForm.aiProfile,
+                        provider: editForm.aiProfile?.provider || editForm.aiModel,
+                        model: e.target.value,
+                      },
+                    })}
+                    placeholder="例如 glm-5 / deepseek-v4-pro / MiniMax-M2.7"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ai-max-tokens">Max Tokens</Label>
+                  <Input
+                    id="ai-max-tokens"
+                    type="number"
+                    min="1"
+                    value={editForm.aiProfile?.maxTokens ?? ''}
+                    onChange={(e) => setEditForm({
+                      ...editForm,
+                      aiProfile: {
+                        ...editForm.aiProfile,
+                        provider: editForm.aiProfile?.provider || editForm.aiModel,
+                        maxTokens: e.target.value,
+                      },
+                    })}
+                    placeholder="留空则使用默认值"
+                  />
                 </div>
               </div>
 
@@ -224,6 +338,97 @@ function Settings() {
                     {showMinimaxKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
                 </div>
+              </div>
+
+              <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                <div>
+                  <p className="text-sm font-medium">Graph 模型覆盖</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    不填时继承上面的默认模型；填写后会只覆盖对应 graph。
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {GRAPH_MODEL_FIELDS.map((field) => (
+                    <div key={field.key} className="space-y-2">
+                      <Label>{field.label}</Label>
+                      <div className="space-y-2 rounded-md border bg-background/70 p-3">
+                        <Select
+                          value={editForm.graphModels?.[field.key]?.provider || '__default__'}
+                          onValueChange={(value) => setEditForm((current) => ({
+                            ...current,
+                            graphModels: {
+                              ...current.graphModels,
+                              [field.key]: value === '__default__'
+                                ? undefined
+                                : {
+                                    ...normalizeProfile(current.graphModels?.[field.key]),
+                                    provider: value,
+                                  },
+                            },
+                          }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__default__">继承默认模型</SelectItem>
+                            {MODEL_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {editForm.graphModels?.[field.key]?.provider ? (
+                          <>
+                            <Input
+                              value={editForm.graphModels?.[field.key]?.model || ''}
+                              onChange={(e) => setEditForm((current) => ({
+                                ...current,
+                                graphModels: {
+                                  ...current.graphModels,
+                                  [field.key]: {
+                                    ...normalizeProfile(current.graphModels?.[field.key]),
+                                    model: e.target.value,
+                                  },
+                                },
+                              }))}
+                              placeholder="模型版本"
+                            />
+                            <Input
+                              type="number"
+                              min="1"
+                              value={editForm.graphModels?.[field.key]?.maxTokens ?? ''}
+                              onChange={(e) => setEditForm((current) => ({
+                                ...current,
+                                graphModels: {
+                                  ...current.graphModels,
+                                  [field.key]: {
+                                    ...normalizeProfile(current.graphModels?.[field.key]),
+                                    maxTokens: e.target.value,
+                                  },
+                                },
+                              }))}
+                              placeholder="Max Tokens"
+                            />
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="chapter-prompt-template">默认章节生成 Prompt 模板</Label>
+                <Textarea
+                  id="chapter-prompt-template"
+                  value={editForm.chapterGenerationPromptTemplate}
+                  onChange={(e) => setEditForm({ ...editForm, chapterGenerationPromptTemplate: e.target.value })}
+                  rows={16}
+                  placeholder={`可用占位符：{{novelInfoSection}} {{chapterInfo}} {{userPromptSection}} {{prevChapterSection}} {{retrievalContextSection}} {{farContextSection}}`}
+                />
+                <p className="text-xs text-muted-foreground">
+                  这里是系统默认模板。小说级模板如果填写，会覆盖这里。
+                </p>
               </div>
 
               <Button onClick={handleSaveConfig} disabled={saving} className="w-full sm:w-auto">

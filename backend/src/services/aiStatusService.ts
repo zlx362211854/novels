@@ -107,6 +107,15 @@ function appendStream(taskId: string | null, text: string): void {
   scheduleStreamEmit();
 }
 
+function appendLog(taskId: string | null, text: string): void {
+  if (!text) return;
+  if (!currentTask) return;
+  if (taskId && currentTask.taskId !== taskId) return;
+  const line = text.endsWith('\n') ? text : `${text}\n`;
+  currentTask.streamText += currentTask.streamText ? `\n${line}` : line;
+  scheduleStreamEmit();
+}
+
 function setStream(taskId: string | null, text: string): void {
   if (!currentTask) return;
   if (taskId && currentTask.taskId !== taskId) return;
@@ -147,6 +156,7 @@ export {
   start,
   step,
   appendStream,
+  appendLog,
   setStream,
   finish,
   error,

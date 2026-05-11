@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Book Manage Showcase</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: hsl(205 50% 97%);
+        color: hsl(211 48% 13%);
+        font-family: "IBM Plex Sans Condensed", "Noto Sans JP", sans-serif;
+      }
+
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 8% -10%, hsl(176 67% 24% / 0.18), rgba(255, 255, 255, 0) 34rem),
+          radial-gradient(circle at 92% 4%, hsl(28 95% 65% / 0.2), rgba(255, 255, 255, 0) 32rem),
+          radial-gradient(circle at 54% 44%, hsl(213 48% 38% / 0.08), rgba(255, 255, 255, 0) 36rem),
+          linear-gradient(135deg, hsl(205 55% 96%) 0%, hsl(188 45% 93%) 38%, hsl(48 42% 96%) 100%);
+      }
+
+      .scene {
+        position: absolute;
+        inset: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background-color: hsl(205 50% 97%);
+      }
+
+      #scene1 {
+        z-index: 1;
+      }
+
+      #scene2,
+      #scene3,
+      #scene4,
+      #scene5 {
+        z-index: 2;
+        opacity: 0;
+      }
+
+      .scene-content {
+        position: relative;
+        z-index: 3;
+        display: flex;
+        width: 100%;
+        height: 100%;
+        padding: 92px 112px;
+        gap: 56px;
+      }
+
+      .grain {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        opacity: 0.17;
+        background-image:
+          linear-gradient(120deg, rgba(18, 102, 96, 0) 0 34%, rgba(18, 102, 96, 0.22) 34% 34.22%, rgba(18, 102, 96, 0) 34.22% 100%),
+          linear-gradient(60deg, rgba(236, 130, 37, 0) 0 62%, rgba(236, 130, 37, 0.18) 62% 62.18%, rgba(236, 130, 37, 0) 62.18% 100%),
+          repeating-linear-gradient(90deg, rgba(23, 43, 62, 0.11) 0 1px, rgba(255, 255, 255, 0) 1px 72px),
+          repeating-linear-gradient(0deg, rgba(23, 43, 62, 0.08) 0 1px, rgba(255, 255, 255, 0) 1px 72px);
+        background-size: auto, auto, auto, auto;
+      }
+
+      .glow {
+        position: absolute;
+        z-index: 0;
+        width: 760px;
+        height: 760px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(18, 102, 96, 0.2), rgba(18, 102, 96, 0));
+        filter: blur(20px);
+      }
+
+      .glow.a {
+        top: -290px;
+        right: -120px;
+      }
+
+      .glow.b {
+        bottom: -360px;
+        left: -220px;
+        opacity: 0.72;
+        background: radial-gradient(circle, rgba(236, 130, 37, 0.22), rgba(236, 130, 37, 0));
+      }
+
+      .hairline {
+        position: absolute;
+        z-index: 2;
+        height: 1px;
+        background: linear-gradient(90deg, hsl(176 67% 24%), hsl(43 83% 58%), hsl(345 63% 55%));
+      }
+
+      .mark {
+        font-family: "IBM Plex Mono", monospace;
+        color: hsl(176 67% 24%);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-size: 22px;
+        font-weight: 600;
+      }
+
+      h1,
+      h2 {
+        margin: 0;
+        font-family: "Noto Sans JP", "IBM Plex Sans Condensed", sans-serif;
+        font-weight: 700;
+        line-height: 1.05;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        max-width: 820px;
+        font-size: 96px;
+      }
+
+      h2 {
+        max-width: 760px;
+        font-size: 76px;
+      }
+
+      p {
+        margin: 0;
+      }
+
+      .lead {
+        max-width: 680px;
+        color: hsl(211 22% 42%);
+        font-size: 34px;
+        font-weight: 350;
+        line-height: 1.36;
+      }
+
+      .small {
+        color: hsl(211 30% 34%);
+        font-size: 22px;
+        line-height: 1.45;
+      }
+
+      .mono {
+        font-family: "IBM Plex Mono", monospace;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .panel {
+        border: 1px solid hsl(198 31% 84% / 0.82);
+        border-radius: 12px;
+        background:
+          linear-gradient(180deg, hsl(48 35% 99% / 0.92), hsl(205 48% 97% / 0.86)),
+          radial-gradient(circle at 100% 0%, hsl(28 95% 65% / 0.08), rgba(255, 255, 255, 0) 18rem);
+        box-shadow: 0 18px 52px hsl(176 67% 20% / 0.1);
+        backdrop-filter: blur(16px);
+      }
+
+      .title-stack {
+        display: flex;
+        flex: 1;
+        min-width: 0;
+        flex-direction: column;
+        justify-content: center;
+        gap: 34px;
+      }
+
+      .dashboard {
+        display: grid;
+        width: 790px;
+        align-self: center;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+      }
+
+      .stat-card {
+        min-height: 210px;
+        padding: 30px;
+      }
+
+      .stat-card.wide {
+        grid-column: span 2;
+        min-height: 250px;
+      }
+
+      .stat-value {
+        margin-top: 18px;
+        color: hsl(211 48% 13%);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 76px;
+        font-weight: 850;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .progress-bar {
+        height: 12px;
+        margin-top: 28px;
+        overflow: hidden;
+        border-radius: 99px;
+        background: hsl(198 31% 84% / 0.7);
+      }
+
+      .progress-fill {
+        width: 74%;
+        height: 100%;
+        border-radius: inherit;
+        background: hsl(176 67% 24%);
+      }
+
+      .workbench {
+        display: grid;
+        flex: 1;
+        grid-template-columns: 360px minmax(0, 1fr);
+        gap: 24px;
+        align-self: stretch;
+      }
+
+      .sidebar,
+      .main-panel,
+      .right-rail {
+        padding: 26px;
+      }
+
+      .brand-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 34px;
+      }
+
+      .brand-icon {
+        display: grid;
+        width: 48px;
+        height: 48px;
+        place-items: center;
+        border-radius: 8px;
+        border: 1px solid hsl(176 67% 24% / 0.24);
+        background: hsl(169 38% 91%);
+        color: hsl(178 55% 18%);
+        font-family: "Noto Sans JP", sans-serif;
+        font-size: 24px;
+        font-weight: 700;
+        box-shadow: 0 8px 24px hsl(176 67% 24% / 0.24);
+      }
+
+      .nav-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 58px;
+        margin-bottom: 10px;
+        padding: 0 16px;
+        border-radius: 8px;
+        color: hsl(211 22% 42%);
+        background: hsl(48 35% 99% / 0.68);
+        border: 1px solid hsl(198 31% 84% / 0.7);
+        font-size: 24px;
+      }
+
+      .nav-item.active {
+        color: hsl(178 55% 18%);
+        background: hsl(169 38% 91%);
+        border: 1px solid hsl(176 67% 24% / 0.24);
+      }
+
+      .mock-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 32px;
+        margin-bottom: 28px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 52px;
+        padding: 0 22px;
+        border-radius: 8px;
+        border: 1px solid hsl(176 67% 24% / 0.28);
+        color: hsl(178 55% 18%);
+        background: hsl(169 38% 91%);
+        font-size: 22px;
+        font-weight: 700;
+      }
+
+      .project-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px;
+      }
+
+      .project-card {
+        min-height: 250px;
+        padding: 24px;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        min-height: 34px;
+        padding: 0 12px;
+        border-radius: 8px;
+        color: hsl(178 55% 18%);
+        background: hsl(169 38% 91%);
+        border: 1px solid hsl(176 67% 24% / 0.18);
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .card-title {
+        margin-top: 22px;
+        color: hsl(211 48% 13%);
+        font-size: 34px;
+        font-weight: 800;
+        line-height: 1.12;
+      }
+
+      .card-copy {
+        margin-top: 16px;
+        color: hsl(211 30% 34%);
+        font-size: 22px;
+        line-height: 1.42;
+      }
+
+      .architecture-layout {
+        display: grid;
+        flex: 1;
+        grid-template-columns: 520px minmax(0, 1fr);
+        gap: 28px;
+        align-self: stretch;
+      }
+
+      .architecture-layout h2 {
+        max-width: 500px;
+        font-size: 64px;
+        line-height: 1.12;
+      }
+
+      .outline-list {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        margin-top: 26px;
+      }
+
+      .outline-row {
+        display: grid;
+        grid-template-columns: 64px minmax(0, 1fr) 92px;
+        align-items: center;
+        min-height: 78px;
+        gap: 16px;
+        padding: 14px 16px;
+        border: 1px solid hsl(198 31% 84% / 0.8);
+        border-radius: 8px;
+        background: hsl(48 35% 99% / 0.72);
+      }
+
+      .node {
+        display: grid;
+        width: 52px;
+        height: 52px;
+        place-items: center;
+        border-radius: 8px;
+        border: 1px solid hsl(176 67% 24% / 0.28);
+        color: hsl(178 55% 18%);
+        background: hsl(169 38% 91%);
+        font-weight: 900;
+      }
+
+      .map {
+        position: relative;
+        min-height: 760px;
+        padding: 56px;
+      }
+
+      .workflow-board {
+        position: relative;
+        min-height: 760px;
+        padding: 40px;
+        overflow: hidden;
+      }
+
+      .curve-layer {
+        position: absolute;
+        inset: 28px;
+        width: calc(100% - 56px);
+        height: calc(100% - 56px);
+        pointer-events: none;
+      }
+
+      .curve-path {
+        fill: none;
+        stroke: hsl(176 67% 24% / 0.32);
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-dasharray: 900;
+        stroke-dashoffset: 0;
+      }
+
+      .curve-path.hot {
+        stroke: hsl(28 86% 54% / 0.34);
+        stroke-width: 4;
+      }
+
+      .flow-card {
+        position: absolute;
+        width: 246px;
+        min-height: 112px;
+        padding: 18px 20px;
+        border: 1px solid hsl(198 31% 84% / 0.86);
+        border-radius: 12px;
+        background: hsl(48 35% 99% / 0.92);
+        box-shadow: 0 14px 34px hsl(176 67% 20% / 0.08);
+      }
+
+      .flow-card strong,
+      .engine-card strong {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 25px;
+        line-height: 1.18;
+      }
+
+      .flow-card span,
+      .engine-card span {
+        color: hsl(211 30% 34%);
+        font-size: 18px;
+        line-height: 1.35;
+      }
+
+      .engine-card {
+        position: absolute;
+        left: 392px;
+        top: 270px;
+        width: 318px;
+        min-height: 178px;
+        padding: 24px;
+        border: 1px solid hsl(176 67% 24% / 0.24);
+        border-radius: 14px;
+        background:
+          radial-gradient(circle at 100% 0%, hsl(28 95% 65% / 0.2), rgba(255,255,255,0) 12rem),
+          linear-gradient(135deg, hsl(169 38% 91% / 0.94), hsl(48 35% 99% / 0.95));
+        box-shadow: 0 20px 54px hsl(176 67% 20% / 0.14);
+      }
+
+      .engine-meter {
+        height: 10px;
+        margin-top: 18px;
+        overflow: hidden;
+        border-radius: 99px;
+        background: hsl(198 31% 84% / 0.72);
+      }
+
+      .engine-fill {
+        width: 68%;
+        height: 100%;
+        border-radius: inherit;
+        background: hsl(176 67% 24%);
+      }
+
+      .runtime-panel {
+        position: absolute;
+        right: 40px;
+        bottom: 38px;
+        width: 330px;
+        padding: 18px;
+        border: 1px solid hsl(198 31% 84% / 0.86);
+        border-radius: 12px;
+        background: hsl(48 35% 99% / 0.9);
+      }
+
+      .runtime-head,
+      .task-toast {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .spinner {
+        width: 20px;
+        height: 20px;
+        border: 3px solid hsl(176 67% 24% / 0.18);
+        border-top-color: hsl(176 67% 24%);
+        border-radius: 50%;
+        flex: 0 0 auto;
+      }
+
+      .runtime-step {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 36px;
+        margin-top: 10px;
+        color: hsl(211 30% 34%);
+        font-size: 18px;
+      }
+
+      .step-dot {
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        background: hsl(169 38% 91%);
+        border: 1px solid hsl(176 67% 24% / 0.28);
+      }
+
+      .task-toast {
+        margin-top: 20px;
+        min-height: 72px;
+        padding: 16px 18px;
+        border-radius: 12px;
+        border: 1px solid hsl(198 31% 84% / 0.86);
+        background: hsl(48 35% 99% / 0.88);
+        box-shadow: 0 12px 34px hsl(176 67% 20% / 0.08);
+      }
+
+      .ai-output-strip {
+        margin-top: 16px;
+        padding: 14px;
+        border-radius: 10px;
+        background: hsl(206 34% 92% / 0.62);
+        color: hsl(211 30% 34%);
+        font-size: 18px;
+        line-height: 1.38;
+      }
+
+      .map-node {
+        position: absolute;
+        width: 236px;
+        min-height: 124px;
+        padding: 18px 20px;
+        border: 1px solid hsl(198 31% 84% / 0.86);
+        border-radius: 8px;
+        background: hsl(48 35% 99% / 0.92);
+      }
+
+      .map-node strong {
+        display: block;
+        margin-bottom: 10px;
+        font-size: 26px;
+      }
+
+      .map-node span {
+        color: hsl(211 30% 34%);
+        font-size: 19px;
+        line-height: 1.35;
+      }
+
+      .thread-line {
+        position: absolute;
+        height: 2px;
+        transform-origin: left center;
+        background: hsl(176 67% 24% / 0.52);
+      }
+
+      .editor-layout {
+        display: grid;
+        flex: 1;
+        grid-template-columns: minmax(0, 1.2fr) 440px;
+        gap: 24px;
+        align-self: stretch;
+      }
+
+      .editor {
+        display: flex;
+        min-height: 780px;
+        flex-direction: column;
+        padding: 34px;
+      }
+
+      .editor-title {
+        margin-bottom: 22px;
+        font-family: "Noto Sans JP", "IBM Plex Sans Condensed", sans-serif;
+        font-size: 48px;
+        font-weight: 700;
+      }
+
+      .manuscript {
+        flex: 1;
+        padding: 26px;
+        border-radius: 8px;
+        background: hsl(48 35% 99% / 0.72);
+        color: hsl(211 48% 13%);
+        font-size: 26px;
+        line-height: 1.72;
+      }
+
+      .manuscript p + p {
+        margin-top: 24px;
+      }
+
+      .review-card {
+        margin-bottom: 16px;
+        padding: 22px;
+      }
+
+      .issue {
+        border-left: 4px solid hsl(28 86% 54%);
+      }
+
+      .passed {
+        border-left: 4px solid hsl(176 67% 24%);
+      }
+
+      .publish-layout {
+        display: grid;
+        flex: 1;
+        grid-template-columns: 0.86fr 1.14fr;
+        gap: 40px;
+        align-items: center;
+      }
+
+      .platform-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .platform {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 84px;
+        padding: 0 26px;
+      }
+
+      .status-pill {
+        border-radius: 8px;
+        padding: 8px 12px;
+        color: hsl(178 55% 18%);
+        background: hsl(169 38% 91%);
+        border: 1px solid hsl(176 67% 24% / 0.28);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .final-lockup {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        gap: 28px;
+      }
+
+      .caption-row {
+        display: flex;
+        gap: 18px;
+        margin-top: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="book-manage-showcase"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="24"
+      data-track-index="0"
+    >
+      <section id="scene1" class="scene" data-layout-allow-overflow>
+        <div class="grain"></div>
+        <div class="glow a" data-layout-ignore></div>
+        <div class="glow b" data-layout-ignore></div>
+        <div class="hairline" style="left: 112px; right: 112px; top: 94px"></div>
+        <div class="scene-content">
+          <div class="title-stack">
+            <div class="mark">AI Novel Studio</div>
+            <h1>AI创作工具</h1>
+            <p class="lead">把创作项目当成一页页可翻阅的工作文档。进入项目后，继续拆架构、写章节、回看版本。</p>
+            <div class="caption-row">
+              <span class="tag">架构驱动</span>
+              <span class="tag">AI 审阅</span>
+              <span class="tag">多平台发布</span>
+            </div>
+          </div>
+          <div class="dashboard">
+            <div class="panel stat-card">
+              <div class="mark">Projects</div>
+              <div class="stat-value mono">12</div>
+              <p class="small">进行中的小说项目</p>
+            </div>
+            <div class="panel stat-card">
+              <div class="mark">Chapters</div>
+              <div class="stat-value mono">348</div>
+              <p class="small">章节草稿与正文版本</p>
+            </div>
+            <div class="panel stat-card wide">
+              <div class="mark">Workflow Coverage</div>
+              <div class="stat-value mono">74%</div>
+              <div class="progress-bar"><div class="progress-fill"></div></div>
+              <div class="task-toast">
+                <div class="spinner"></div>
+                <div>
+                  <div class="mark" style="font-size: 16px">AI Task Running</div>
+                  <p class="small">提取「天涯同路」记忆卡 · 3m30s</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="scene2" class="scene" data-layout-allow-overflow>
+        <div class="grain"></div>
+        <div class="glow a" data-layout-ignore></div>
+        <div class="scene-content">
+          <div class="workbench">
+            <aside class="panel sidebar">
+              <div class="brand-row">
+                <div class="brand-icon">书</div>
+                <div>
+              <div class="mark">AI创作工具</div>
+                  <p class="small">创作工作台</p>
+                </div>
+              </div>
+              <div class="nav-item active">工作台 <span class="mono">01</span></div>
+              <div class="nav-item">故事圣经 <span class="mono">02</span></div>
+              <div class="nav-item">架构管理 <span class="mono">03</span></div>
+              <div class="nav-item">章节列表 <span class="mono">04</span></div>
+              <div class="nav-item">系统设置 <span class="mono">05</span></div>
+            </aside>
+            <main class="panel main-panel">
+              <div class="mock-header">
+                <div>
+                  <div class="mark">Project Index</div>
+                  <h2>我的项目</h2>
+                </div>
+                <div class="button">创建新项目</div>
+              </div>
+              <div class="project-grid">
+                <article class="panel project-card">
+                  <span class="tag">赛博悬疑</span>
+                  <div class="card-title">寒刃惊鸿</div>
+                  <p class="card-copy">已完成 22 / 67 章，架构、章节和版本都在一个工作台推进。</p>
+                </article>
+                <article class="panel project-card">
+                  <span class="tag">东方奇幻</span>
+                  <div class="card-title">故事圣经</div>
+                  <p class="card-copy">人物、地点、规则和关键物品沉淀为创作上下文。</p>
+                </article>
+                <article class="panel project-card">
+                  <span class="tag">都市群像</span>
+                  <div class="card-title">周期任务</div>
+                  <p class="card-copy">到点自动跑「生成 → 审阅 → 修复」完整流程。</p>
+                </article>
+              </div>
+              <div class="task-toast">
+                <div class="spinner"></div>
+                <div>
+                  <div class="mark" style="font-size: 16px">AI 运行中</div>
+                  <p class="small">当前步骤输出：生成章节记忆、抽取关键事件、同步人物状态。</p>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </section>
+
+      <section id="scene3" class="scene" data-layout-allow-overflow>
+        <div class="grain"></div>
+        <div class="glow b" data-layout-ignore></div>
+        <div class="scene-content">
+          <div class="architecture-layout">
+            <div class="title-stack">
+              <div class="mark">Architecture Engine</div>
+              <h2>先搭骨架，再生成章节</h2>
+              <p class="lead">全书、分卷、章级架构分层管理。AI 可以生成章架构草稿，也能审阅节奏、伏笔和承接问题。</p>
+              <div class="outline-list">
+                <div class="outline-row">
+                  <div class="node mono">01</div>
+                  <div>
+                    <div class="card-title" style="margin: 0; font-size: 28px">建立全书主线</div>
+                    <p class="small">冲突、人物、世界规则一次归档</p>
+                  </div>
+                  <span class="tag">Full</span>
+                </div>
+                <div class="outline-row">
+                  <div class="node mono">02</div>
+                  <div>
+                    <div class="card-title" style="margin: 0; font-size: 28px">拆分分卷节奏</div>
+                    <p class="small">每卷都有目标、转折与悬念</p>
+                  </div>
+                  <span class="tag">Volume</span>
+                </div>
+                <div class="outline-row">
+                  <div class="node mono">03</div>
+                  <div>
+                    <div class="card-title" style="margin: 0; font-size: 28px">批量生成章纲</div>
+                    <p class="small">从章纲直接预览正文草稿</p>
+                  </div>
+                  <span class="tag">Chapter</span>
+                </div>
+              </div>
+            </div>
+            <div class="panel workflow-board">
+              <svg class="curve-layer" viewBox="0 0 1080 704" aria-hidden="true">
+                <path class="curve-path" d="M 142 142 C 270 90, 392 120, 518 260" />
+                <path class="curve-path hot" d="M 550 238 C 652 128, 790 118, 930 150" />
+                <path class="curve-path" d="M 564 354 C 674 438, 780 430, 912 398" />
+                <path class="curve-path hot" d="M 502 410 C 382 540, 290 588, 174 552" />
+                <path class="curve-path" d="M 536 262 C 470 356, 436 438, 342 514" />
+              </svg>
+              <div class="flow-card" style="left: 74px; top: 116px">
+                <strong>全本设定</strong>
+                <span>主线冲突、人物关系、世界规则</span>
+              </div>
+              <div class="flow-card" style="left: 796px; top: 114px">
+                <strong>卷级节奏</strong>
+                <span>拆分篇章目标与关键转折</span>
+              </div>
+              <div class="engine-card">
+                <div class="runtime-head">
+                  <div class="spinner"></div>
+                  <div>
+                    <strong>AI 架构引擎</strong>
+                    <span>审阅承接 · 生成章纲 · 修补跳跃</span>
+                  </div>
+                </div>
+                <div class="engine-meter"><div class="engine-fill"></div></div>
+                <div class="ai-output-strip mono">review.strictness = "strict"<br />chapters.generated = 22 / 67</div>
+              </div>
+              <div class="flow-card" style="left: 152px; top: 542px">
+                <strong>章纲草稿</strong>
+                <span>批量生成，逐章预览正文</span>
+              </div>
+              <div class="flow-card" style="left: 760px; top: 400px">
+                <strong>修补建议</strong>
+                <span>新增过渡章，降低节奏跳跃</span>
+              </div>
+              <div class="runtime-panel">
+                <div class="runtime-head">
+                  <div class="spinner"></div>
+                  <div>
+                    <div class="mark" style="font-size: 16px">AI Step Logs</div>
+                    <p class="small">架构审阅任务运行中</p>
+                  </div>
+                </div>
+                <div class="runtime-step"><span class="step-dot"></span><span>读取全本架构</span><span class="mono">done</span></div>
+                <div class="runtime-step"><span class="step-dot"></span><span>定位承接风险</span><span class="mono">run</span></div>
+                <div class="runtime-step"><span class="step-dot"></span><span>生成修补方案</span><span class="mono">next</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="scene4" class="scene" data-layout-allow-overflow>
+        <div class="grain"></div>
+        <div class="glow a" data-layout-ignore></div>
+        <div class="scene-content">
+          <div class="editor-layout">
+            <main class="panel editor">
+              <div class="mark">Chapter Workspace</div>
+              <div class="editor-title">第 27 章：雨夜回声</div>
+              <div class="manuscript">
+                <p>他在旧站台停下脚步，雨水沿着灯箱滴落。上一章留下的断线索，在这一刻被重新接上：失踪的钥匙并不属于父亲，而属于那个从未出现过的妹妹。</p>
+                <p>记忆卡同步记录人物状态，版本历史保留每一次重写。正文、架构、审核意见并排出现，写作者不用在文档之间来回迷路。</p>
+              </div>
+            </main>
+            <aside class="right-rail">
+              <div class="panel review-card passed">
+                <div class="mark">Memory Card</div>
+                <p class="card-title" style="font-size: 30px">7 个关键事件 / 18 个实体</p>
+                <p class="card-copy">人物状态、地点、道具和悬念自动沉淀。</p>
+              </div>
+              <div class="panel review-card issue">
+                <div class="mark">AI Review</div>
+                <p class="card-title" style="font-size: 30px">发现 2 个连续性风险</p>
+                <p class="card-copy">第 12 章设定的时间线与当前行动路线冲突。</p>
+              </div>
+              <div class="panel review-card">
+                <div class="mark">Revision</div>
+                <p class="card-title" style="font-size: 30px">生成修订草案</p>
+                <p class="card-copy">按审核结果重写段落，并保留差异对照。</p>
+              </div>
+              <div class="panel review-card">
+                <div class="runtime-head">
+                  <div class="spinner"></div>
+                  <div>
+                    <div class="mark">AI Pipeline</div>
+                    <p class="card-copy" style="margin-top: 4px">生成 → 审阅 → 修复 · 运行中</p>
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section id="scene5" class="scene" data-layout-allow-overflow>
+        <div class="grain"></div>
+        <div class="glow a" data-layout-ignore></div>
+        <div class="glow b" data-layout-ignore></div>
+        <div class="scene-content">
+          <div class="publish-layout">
+            <div class="final-lockup">
+              <div class="mark">Publish Loop</div>
+              <h2>从草稿到发布，一条链路完成</h2>
+              <p class="lead">章节通过审核后，可以进入多平台发布配置。Book Manage 把创作、检查、修订和上线收束到同一个工作台。</p>
+            </div>
+            <div class="platform-stack">
+              <div class="panel platform">
+                <div>
+                  <div class="card-title" style="margin: 0; font-size: 34px">番茄小说</div>
+                  <p class="small">草稿箱同步完成</p>
+                </div>
+                <span class="status-pill">READY</span>
+              </div>
+              <div class="panel platform">
+                <div>
+                  <div class="card-title" style="margin: 0; font-size: 34px">七猫中文网</div>
+                  <p class="small">章节发布队列已创建</p>
+                </div>
+                <span class="status-pill">QUEUED</span>
+              </div>
+              <div class="panel platform">
+                <div>
+                  <div class="card-title" style="margin: 0; font-size: 34px">本地导出</div>
+                  <p class="small">完整项目可归档为结构化文本</p>
+                </div>
+                <span class="status-pill">DONE</span>
+              </div>
+              <div class="panel platform">
+                <div>
+                  <div class="card-title" style="margin: 0; font-size: 34px">周期任务</div>
+                  <p class="small">上次：尝试 3 章，成功 3 章，失败 0 章</p>
+                </div>
+                <span class="status-pill">19:00</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const duration = 24;
+
+      tl.to(".glow.a", {
+        scale: 1.08,
+        x: -36,
+        y: 26,
+        duration: 6,
+        repeat: Math.floor(duration / 6) - 1,
+        yoyo: true,
+        ease: "sine.inOut",
+      }, 0);
+      tl.to(".glow.b", {
+        scale: 1.12,
+        x: 42,
+        y: -28,
+        duration: 7,
+        repeat: Math.floor(duration / 7) - 1,
+        yoyo: true,
+        ease: "sine.inOut",
+      }, 0);
+      tl.to(".grain", {
+        backgroundPosition: "52px 26px, -26px 52px",
+        duration: 8,
+        repeat: Math.floor(duration / 8) - 1,
+        yoyo: true,
+        ease: "sine.inOut",
+      }, 0);
+      tl.to(".spinner", {
+        rotation: 360,
+        duration: 1.2,
+        repeat: Math.floor(duration / 1.2) - 1,
+        ease: "none",
+      }, 0);
+
+      function enterScene(selector, start) {
+        const addFrom = (targetSelector, vars, position) => {
+          const targets = gsap.utils.toArray(targetSelector);
+          if (targets.length) tl.from(targets, vars, position);
+        };
+        addFrom(`${selector} .mark`, { y: 34, opacity: 0, duration: 0.46, ease: "power3.out" }, start + 0.12);
+        addFrom(`${selector} h1, ${selector} h2`, { y: 54, opacity: 0, scale: 0.985, duration: 0.68, ease: "expo.out" }, start + 0.24);
+        addFrom(`${selector} .lead`, { x: -38, opacity: 0, duration: 0.52, ease: "back.out(1.3)" }, start + 0.46);
+        addFrom(`${selector} .tag`, { y: 26, opacity: 0, stagger: 0.08, duration: 0.36, ease: "power2.out" }, start + 0.68);
+        addFrom(`${selector} .panel`, { y: 42, opacity: 0, scale: 0.985, stagger: 0.08, duration: 0.52, ease: "power4.out" }, start + 0.36);
+      }
+
+      function push(oldScene, newScene, time) {
+        tl.to(oldScene, { x: -1920, duration: 0.5, ease: "power3.inOut" }, time);
+        tl.fromTo(newScene, { x: 1920, opacity: 1 }, { x: 0, opacity: 1, duration: 0.5, ease: "power3.inOut" }, time);
+      }
+
+      function focus(oldScene, newScene, time) {
+        tl.to(oldScene, { filter: "blur(15px)", duration: 0.5, ease: "power1.in" }, time);
+        tl.to(oldScene, { opacity: 0, duration: 0.3, ease: "power2.in" }, time + 0.25);
+        tl.fromTo(newScene, { opacity: 0, filter: "blur(18px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.72, ease: "power2.out" }, time + 0.25);
+      }
+
+      enterScene("#scene1", 0);
+
+      push("#scene1", "#scene2", 4.45);
+      enterScene("#scene2", 4.9);
+      tl.from("#scene2 .nav-item", { x: -28, opacity: 0, stagger: 0.08, duration: 0.36, ease: "power2.out" }, 5.18);
+      tl.from("#scene2 .project-card", { y: 44, opacity: 0, stagger: 0.12, duration: 0.48, ease: "back.out(1.35)" }, 5.42);
+
+      push("#scene2", "#scene3", 9.0);
+      enterScene("#scene3", 9.45);
+      tl.from("#scene3 .outline-row", { x: -46, opacity: 0, stagger: 0.12, duration: 0.48, ease: "power3.out" }, 10.02);
+      tl.from("#scene3 .curve-path", { strokeDashoffset: 900, opacity: 0, stagger: 0.08, duration: 0.52, ease: "power2.out" }, 10.12);
+      tl.from("#scene3 .flow-card", { scale: 0.94, opacity: 0, y: 24, stagger: 0.1, duration: 0.46, ease: "back.out(1.25)" }, 10.22);
+      tl.from("#scene3 .engine-card", { scale: 0.92, opacity: 0, duration: 0.52, ease: "power4.out" }, 10.42);
+      tl.from("#scene3 .runtime-step", { x: 24, opacity: 0, stagger: 0.08, duration: 0.32, ease: "power2.out" }, 10.78);
+
+      focus("#scene3", "#scene4", 13.62);
+      enterScene("#scene4", 14.2);
+      tl.from("#scene4 .manuscript", { y: 32, opacity: 0, duration: 0.55, ease: "power3.out" }, 14.78);
+      tl.from("#scene4 .review-card", { x: 48, opacity: 0, stagger: 0.13, duration: 0.46, ease: "power4.out" }, 15.06);
+
+      push("#scene4", "#scene5", 18.4);
+      enterScene("#scene5", 18.86);
+      tl.from("#scene5 .platform", { x: 52, opacity: 0, stagger: 0.14, duration: 0.5, ease: "back.out(1.25)" }, 19.46);
+      tl.from("#scene5 .status-pill", { scale: 0.75, opacity: 0, stagger: 0.12, duration: 0.34, ease: "power2.out" }, 20.02);
+      tl.to("#scene5 .scene-content", { opacity: 0, y: -18, duration: 0.85, ease: "power1.inOut" }, 23.05);
+      tl.to("#scene5 .glow", { opacity: 0, duration: 0.7, ease: "power1.inOut" }, 23.18);
+
+      window.__timelines["book-manage-showcase"] = tl;
+    </script>
+  </body>
+</html>

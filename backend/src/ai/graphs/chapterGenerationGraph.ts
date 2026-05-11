@@ -2,11 +2,13 @@ import { Annotation, StateGraph, START, END } from "@langchain/langgraph";
 import { HumanMessage } from "@langchain/core/messages";
 import { Chapter, Novel, Architecture } from "../../models/sequelize";
 import { createLLM } from "../llmFactory";
+import { resolveChapterGenerationPromptTemplate } from "../runtimeConfig";
 import { withRetry } from "../retryUtils";
 import { createProgressTracker } from "../progressAdapter";
 import { invokeWithStreaming } from "../streaming";
 import * as chapterMemoryService from "../../services/chapterMemoryService";
 import * as ragService from "../../services/ragService";
+import * as aiStatus from "../../services/aiStatusService";
 import { chapterReviewGraph } from "./chapterReviewGraph";
 import { chapterRevisionGraph } from "./chapterRevisionGraph";
 import {
@@ -175,12 +177,14 @@ async function generateContentNode(state: typeof ChapterGenerationState.State) {
     volumeChapterArchs,
     state.userPrompt || "",
     retrievalContext,
+    await resolveChapterGenerationPromptTemplate(novel),
   );
 
   const llm = await createLLM({
     temperature: 0.8,
-    maxTokens: 9000,
-    provider: 'deepseek'
+    maxTokens: 6000,
+    graph: 'chapterGeneration',
+    novel,
   });
   let generatedContent = await withRetry(
     async () => {
@@ -323,9 +327,9 @@ async function reviewChapterNode(state: typeof ChapterGenerationState.State) {
 
       currentChapter = revisionState.updatedChapter;
       autoRevisionRounds += 1;
-      console.log(
-        `[chapter-generate] 检测到 high 问题，已自动修订第 ${autoRevisionRounds} 轮 chapterId=${state.chapterId}`,
-      );
+      const revisionLog = `[chapter-generate] 检测到 high 问题，已自动修订第 ${autoRevisionRounds} 轮 chapterId=${state.chapterId}`;
+      console.log(revisionLog);
+      aiStatus.appendLog(state.taskId, revisionLog);
     }
 
     return {
@@ -346,7 +350,9 @@ async function reviewChapterNode(state: typeof ChapterGenerationState.State) {
 
 // Node: finalize and report completion
 async function finalizeNode(state: typeof ChapterGenerationState.State) {
-  console.log(`[chapter-generate] 生成流程完成 chapterId=${state.chapterId}`);
+  const completionLog = `[chapter-generate] 生成流程完成 chapterId=${state.chapterId}`;
+  console.log(completionLog);
+  aiStatus.appendLog(state.taskId, completionLog);
   const tracker = createProgressTracker(state.taskId, [
     "生成章节内容",
     "提取记忆卡",

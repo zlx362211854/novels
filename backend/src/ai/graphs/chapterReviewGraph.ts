@@ -70,14 +70,31 @@ function formatMemoryCard(memory: any): string {
   const stateChanges = (memory.state_changes || [])
     .map((s: any) => `${s.entity}:${s.before ?? '?'}→${s.after ?? '?'}`)
     .join('; ');
+  const timeSequence = (memory.time_sequence || [])
+    .map((item: any) => `${item.label || `第${item.day ?? '?'}天`}:${item.event || ''}${item.location ? `@${item.location}` : ''}`)
+    .join('; ');
   return [
     `概要: ${memory.summary || ''}`,
     keyEvents ? `关键事件: ${keyEvents}` : '',
+    timeSequence ? `时间顺序: ${timeSequence}` : '',
     `人物: ${(memory.entities?.characters || []).join(', ')}`,
     `地点: ${(memory.entities?.locations || []).join(', ')}`,
     `事实: ${(memory.facts || []).map((f: any) => `${f.subject}${f.predicate}${f.object}`).join('; ')}`,
     stateChanges ? `状态变化: ${stateChanges}` : '',
   ].filter(Boolean).join('\n');
+}
+
+function formatTimeSequence(memory: any): string {
+  const items = Array.isArray(memory?.time_sequence) ? memory.time_sequence : [];
+  if (items.length === 0) return '无';
+  return items.map((item: any, index: number) => {
+    const label = item.label || `第${item.day ?? '?'}天`;
+    const location = item.location ? ` @${item.location}` : '';
+    const chars = Array.isArray(item.characters) && item.characters.length > 0
+      ? `（${item.characters.join('、')}）`
+      : '';
+    return `${index + 1}. ${label}${location}：${item.event || '未命名事件'}${chars}`;
+  }).join('\n');
 }
 
 function formatKeyEvents(memory: any): string {
@@ -295,7 +312,7 @@ ${curFirstParas}
 `
     : '';
 
-  return `你是一位专业的小说逻辑审校编辑，请审核以下章节内容，只找"有证据的硬逻辑错误"。${strictnessGuide}
+  return `你是一位专业的小说逻辑审校编辑，请审核以下章节内容，找出情节,物品,人物情绪,对话等不合理或者可优化之处。${strictnessGuide}
 ## 章节信息
 标题：${chapter.title || ''}
 序号：第${chapter.chapter_number}章
@@ -307,6 +324,13 @@ ${transitionSection}## 小说信息
 ${formatArchitecture(architecture)}
 ## 当前章关键事件
 ${currentKeyEvents}
+## 当前章时间顺序
+${formatTimeSequence(reviewContext.currentMemory)}
+## 当前章全文重点检查提示
+- 必须对照“当前章时间顺序”和正文全文，检查场景是否连续推进
+- 重点检查：人物离开某地点后，是否在缺少必要转场的情况下又突然回到原地点
+- 重点检查：同一地点是否被重复当作新场景开始（例如先写“走出山洞不远”，后文又直接写“夜色再次降临，月光照进山洞”，却没有说明为何返回山洞）
+- 若正文中出现“再次、又回到、重新回到、仍在原处、月光照进先前场景”等信号，必须核对前文是否交代了返回过程
 ## 上一章关键事件
 ${previousKeyEvents}
 ## 相关历史关键事件
@@ -320,7 +344,7 @@ ${buildStoryBibleEvidenceSection(storyBibleEntries)}
 ${buildRetrievedChunkSection(retrievedChunks)}
 ${formatVolumeChapterArchs(volumeChapterArchs, chapter.id, relevantMemories, allMemories)}
 ## 审核要求
-请检查包括但不限于：1.时间线错误 2.人物状态矛盾 3.情节因果错乱 4.数字不一致 5.场景逻辑错误 6.角色称呼错误（仅依据上方"角色列表"中的名字判断，列表之外的名字、别名、化名一律不得自行推断，必须在正文中有明确原文依据才能报告）7.物品/功法/技能获取时机错误 8.章节承接错误（对比上方"章节承接强对比"区，必须检查：①人物伤势/体力/位置回退 ②人物关系/认知状态回退 ③已出场角色被重复当作初次登场介绍 ④场景/时间无故重复或回退）。
+请检查包括但不限于：1.时间线错误 2.人物状态矛盾 3.情节因果错乱 4.数字不一致 5.场景逻辑错误 6.角色称呼错误（仅依据上方"角色列表"中的名字判断，列表之外的名字、别名、化名一律不得自行推断，必须在正文中有明确原文依据才能报告）7.物品/功法/技能获取时机错误 8.章节承接错误（对比上方"章节承接强对比"区，必须检查：①人物伤势/体力/位置回退 ②人物关系/认知状态回退 ③已出场角色被重复当作初次登场介绍 ④场景/时间无故重复或回退）9.单章内部时间推进错误（重点对照“当前章时间顺序”，检查是否存在“第N天白天 -> 第N天晚上 -> 又回到第N天白天”、无说明跨天跳跃、同一天时间段缺失必要承接、晨/昼/夜切换后缺乏转场说明等问题）10.单章内部场景回跳错误（重点检查人物已离开某地点后，是否缺少返回过程却突然再次处于该地点；同一地点是否被重复开场，造成空间连续性断裂）。
 请注意：
 - 角色列表包含的是"全书角色"，不代表每个角色都应在当前章节出现。判断角色"缺失"问题时，需要结合历史记忆卡判断该角色是否已在更早章节出场。只有当角色在历史章节中已出场过，或架构明确要求当前章节必须出现，才报告"角色缺失"问题。如果角色在所有历史章节中都未出场，则可能是该角色的出场时机尚未到来，不应报告为缺失。
 - 物品/功法获取时机：当前章节出现的物品，必须在该章节或更早章节的"已知物品"列表中出现。如果当前章节出现了某物品但它只在后续章节的"已知物品"中出现，说明该物品出现时机错误。
@@ -441,7 +465,12 @@ async function buildContextNode(state: typeof ChapterReviewState.State) {
 // Node: call LLM for review
 async function runReviewNode(state: typeof ChapterReviewState.State) {
   const config = await getAIConfig();
-  const llm = await createLLM({ temperature: 0.2, maxTokens: 40000, provider: 'deepseek' });
+  const llm = await createLLM({
+    temperature: 0.2,
+    maxTokens: 40000,
+    graph: 'chapterReview',
+    novel: state.novel,
+  });
 
   const prompt = buildReviewPrompt(
     state.chapter,
@@ -467,10 +496,16 @@ async function runReviewNode(state: typeof ChapterReviewState.State) {
       { signal: state.signal, taskId: state.taskId, resetStream: true }
     );
     console.log('审核原始内容:', content);
+    aiStatus.appendLog(state.taskId, `审核原始内容: ${content}`);
     const reviewResult = await parseJsonWithRepair(
       content,
       llm,
       buildRepairPrompt
+    );
+    console.log(`[chapter-review] 主审阅解析完成，issues=${Array.isArray(reviewResult?.issues) ? reviewResult.issues.length : 0}`);
+    aiStatus.appendLog(
+      state.taskId,
+      `[chapter-review] 主审阅解析完成，issues=${Array.isArray(reviewResult?.issues) ? reviewResult.issues.length : 0}`
     );
 
     let continuityResult = { issues: [] as any[] };
@@ -486,9 +521,22 @@ async function runReviewNode(state: typeof ChapterReviewState.State) {
         llm,
         buildRepairPrompt
       );
+      console.log(`[chapter-review] 承接专项解析完成，issues=${Array.isArray(continuityResult?.issues) ? continuityResult.issues.length : 0}`);
+      aiStatus.appendLog(
+        state.taskId,
+        `[chapter-review] 承接专项解析完成，issues=${Array.isArray(continuityResult?.issues) ? continuityResult.issues.length : 0}`
+      );
     }
 
-    return { reviewResult: mergeAiIssues(reviewResult, continuityResult) };
+    const merged = mergeAiIssues(reviewResult, continuityResult);
+    console.log(`[chapter-review] 合并审阅结果完成，issues=${Array.isArray(merged?.issues) ? merged.issues.length : 0}`);
+    aiStatus.appendLog(
+      state.taskId,
+      `[chapter-review] 合并审阅结果完成，issues=${Array.isArray(merged?.issues) ? merged.issues.length : 0}`
+    );
+    aiStatus.appendLog(state.taskId, `合并审阅结果:\n${JSON.stringify(merged, null, 2)}`);
+
+    return { reviewResult: merged };
   } catch (error: any) {
     console.error('审核失败:', error.message);
     return {
