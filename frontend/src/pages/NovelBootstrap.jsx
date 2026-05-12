@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2, Sparkles, CopyPlus } from 'lucide-react';
 import { novelApi } from '../services/api';
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import { PageShell, SectionCard } from '../components/ui/PageShell';
@@ -121,6 +121,9 @@ function NovelBootstrap() {
     }
   };
 
+  const promptPlaceholder = '写一部长篇古代权谋言情小说，主角成长线清晰，节奏要有持续升级感。';
+  const samplePrompt = '生成一部长篇女频古代权谋逆袭小说。女主出身没落世家，表面温婉克制，实则心思缜密、极擅布局，从一桩旧案切入朝局，在后宅、宫廷与朝堂的多重斗争中一步步完成家族复兴与个人掌权。男主是外冷内稳、手握兵权的年轻王爷，与女主从互相试探到深度联手，感情线慢热但张力强。整体风格要有压迫感、翻盘感和持续升级的爽点，每一卷都要有明确目标、强冲突、阶段高潮和卷尾钩子，并兼顾人物成长、权谋博弈与情感推进。';
+
   return (
     <PageShell
       eyebrow="AI Bootstrap"
@@ -130,13 +133,24 @@ function NovelBootstrap() {
       <SectionCard title="生成配置" description="首版只要求一个提示词，其余约束用于提升结果稳定性。">
         <form className="space-y-5" onSubmit={handleSubmit}>
           <div className="space-y-2">
-            <Label htmlFor="prompt">提示词</Label>
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="prompt">提示词</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleChange('prompt', samplePrompt)}
+                >
+                <CopyPlus className="mr-1.5 h-4 w-4" />
+                填入示例提示词
+              </Button>
+            </div>
             <Textarea
               id="prompt"
               rows={8}
               value={form.prompt}
               onChange={(event) => handleChange('prompt', event.target.value)}
-              placeholder="例如：生成一部女频古代权谋逆袭长篇小说，女主从没落世家起步，感情线慢热，强调朝堂斗争与家族复兴。"
+              placeholder={promptPlaceholder}
             />
           </div>
 

@@ -21,6 +21,18 @@ interface RunSummary {
   failed: { chapterArchId: number; reason: string }[];
 }
 
+interface QueuedRun {
+  taskId: number;
+  signal?: AbortSignal;
+  resolve: (summary: RunSummary) => void;
+  reject: (error: any) => void;
+}
+
+const runQueue: QueuedRun[] = [];
+const queuedTaskIds = new Set<number>();
+let activeTaskId: number | null = null;
+let drainingQueue = false;
+
 function validateCron(cronExpression: string): void {
   if (!cronExpression || typeof cronExpression !== 'string') {
     throw new Error('cronExpression 不能为空');
@@ -43,6 +55,14 @@ function clampChaptersPerRun(value: any): number {
 
 function isRunning(task: any): boolean {
   return task?.last_run_status === 'running';
+}
+
+function isQueued(taskId: number): boolean {
+  return queuedTaskIds.has(taskId) || activeTaskId === taskId;
+}
+
+function isBusy(task: any): boolean {
+  return isRunning(task) || isQueued(Number(task?.id));
 }
 
 function describeJobNextRun(cronExpression: string): Date | null {
@@ -84,8 +104,8 @@ async function upsert(novelId: number | string, payload: UpsertPayload): Promise
   if (!novel) throw new Error('小说不存在');
 
   const existing = await findByNovel(numericNovelId);
-  if (existing && isRunning(existing)) {
-    throw new Error('当前周期任务正在运行，请等待运行结束后再修改。');
+  if (existing && isBusy(existing)) {
+    throw new Error('当前周期任务正在运行或排队中，请等待执行结束后再修改。');
   }
 
   const enabled = payload.enabled !== false;
@@ -130,8 +150,8 @@ async function upsert(novelId: number | string, payload: UpsertPayload): Promise
 async function remove(novelId: number | string): Promise<boolean> {
   const task = await findByNovel(novelId);
   if (!task) return false;
-  if (isRunning(task)) {
-    throw new Error('当前周期任务正在运行，请等待运行结束后再删除。');
+  if (isBusy(task)) {
+    throw new Error('当前周期任务正在运行或排队中，请等待执行结束后再删除。');
   }
   unregister(task.id);
   await task.destroy();
@@ -220,7 +240,7 @@ async function findPendingChapterArchitectures(novelId: number, limit: number): 
   return pending;
 }
 
-async function executeRun(taskId: number, signal?: AbortSignal): Promise<RunSummary> {
+async function performExecuteRun(taskId: number, signal?: AbortSignal): Promise<RunSummary> {
   // Pre-flight check so we don't enter the graph if the task is missing or already running.
   const task = await ScheduledTask.findByPk(taskId);
   if (!task) throw new Error('周期任务不存在');
@@ -266,10 +286,51 @@ async function executeRun(taskId: number, signal?: AbortSignal): Promise<RunSumm
   }
 }
 
+async function drainRunQueue(): Promise<void> {
+  if (drainingQueue) return;
+  drainingQueue = true;
+
+  try {
+    while (runQueue.length > 0) {
+      const next = runQueue.shift();
+      if (!next) continue;
+
+      queuedTaskIds.delete(next.taskId);
+      activeTaskId = next.taskId;
+
+      try {
+        console.log(`[recurring-task] 开始串行执行 taskId=${next.taskId} queueRemaining=${runQueue.length}`);
+        const summary = await performExecuteRun(next.taskId, next.signal);
+        next.resolve(summary);
+      } catch (error) {
+        next.reject(error);
+      } finally {
+        activeTaskId = null;
+      }
+    }
+  } finally {
+    drainingQueue = false;
+  }
+}
+
+async function executeRun(taskId: number, signal?: AbortSignal): Promise<RunSummary> {
+  const task = await ScheduledTask.findByPk(taskId);
+  if (!task) throw new Error('周期任务不存在');
+  if (isRunning(task)) throw new Error('周期任务已在运行，跳过本次触发');
+  if (isQueued(taskId)) throw new Error('周期任务已在队列中，跳过本次触发');
+
+  return new Promise<RunSummary>((resolve, reject) => {
+    runQueue.push({ taskId, signal, resolve, reject });
+    queuedTaskIds.add(taskId);
+    console.log(`[recurring-task] 已加入全局串行队列 taskId=${taskId} queueLength=${runQueue.length}`);
+    void drainRunQueue();
+  });
+}
+
 async function runNow(novelId: number | string): Promise<RunSummary> {
   const task = await findByNovel(novelId);
   if (!task) throw new Error('当前小说还没有周期任务');
-  if (isRunning(task)) throw new Error('周期任务已在运行，请稍后再试');
+  if (isBusy(task)) throw new Error('周期任务已在运行或排队中，请稍后再试');
   return executeRun(task.id);
 }
 

@@ -203,3 +203,71 @@ test('executeRun delegates the full run to recurringTaskGraph', async () => {
   assert.equal(summary.attempted, 2);
   assert.deepEqual(summary.generated, [101, 102]);
 });
+
+test('executeRun uses a global serial queue across different tasks', async () => {
+  const taskRecords = {
+    42: {
+      id: 42,
+      novel_id: 1,
+      cron_expression: '0 8 * * *',
+      enabled: true,
+      chapters_per_run: 1,
+      last_run_status: null,
+      save: async function save() { return this; },
+    },
+    43: {
+      id: 43,
+      novel_id: 2,
+      cron_expression: '0 8 * * *',
+      enabled: true,
+      chapters_per_run: 1,
+      last_run_status: null,
+      save: async function save() { return this; },
+    },
+  };
+
+  const callOrder = [];
+  let releaseFirst;
+  const firstDone = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+
+  const service = loadModuleWithMocks('../src/services/recurringTaskService', {
+    '../models/sequelize': {
+      ScheduledTask: {
+        findByPk: async (id) => taskRecords[id] || null,
+        findOne: async () => null,
+        findAll: async () => [],
+        update: async () => [0],
+      },
+      Novel: {},
+      Architecture: {},
+      Chapter: {},
+    },
+    'node-schedule': makeNoopScheduleMock(),
+    '../ai/graphs/recurringTaskGraph': {
+      recurringTaskGraph: {
+        invoke: async (state) => {
+          callOrder.push(`start-${state.recurringTaskId}`);
+          if (state.recurringTaskId === 42) {
+            await firstDone;
+          }
+          callOrder.push(`end-${state.recurringTaskId}`);
+          return { summary: { attempted: 1, generated: [state.recurringTaskId], failed: [] } };
+        },
+      },
+    },
+  });
+
+  const firstPromise = service.executeRun(42);
+  const secondPromise = service.executeRun(43);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(callOrder, ['start-42']);
+
+  releaseFirst();
+  const [firstSummary, secondSummary] = await Promise.all([firstPromise, secondPromise]);
+
+  assert.deepEqual(callOrder, ['start-42', 'end-42', 'start-43', 'end-43']);
+  assert.deepEqual(firstSummary.generated, [42]);
+  assert.deepEqual(secondSummary.generated, [43]);
+});
