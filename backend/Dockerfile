@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim AS build
+FROM node:20-trixie-slim AS build
 
 WORKDIR /app
 
@@ -13,7 +13,7 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
 
-FROM node:20-bookworm-slim AS runtime
+FROM node:20-trixie-slim AS runtime
 
 WORKDIR /app
 
