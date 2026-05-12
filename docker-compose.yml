@@ -19,7 +19,7 @@ services:
       - ZHIPU_API_KEY=${ZHIPU_API_KEY}
       - ZHIPU_API_URL=https://open.bigmodel.cn/api/paas/v4/chat/completions
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-      - DEEPSEEK_API_URL=https://api.deepseek.com/v1/chat/completions
+      - DEEPSEEK_API_URL=https://api.deepseek.com/v1
       - DEFAULT_AI_MODEL=${DEFAULT_AI_MODEL:-zhipu}
       - REVIEW_STRICTNESS=${REVIEW_STRICTNESS:-strict}
     volumes:
