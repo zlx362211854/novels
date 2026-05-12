@@ -4,16 +4,28 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
 const api = axios.create({
   baseURL: API_BASE,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+    }
+    return Promise.reject(error);
+  }
+);
 
 export const novelApi = {
   getAll: () => api.get('/novels'),
   getById: (id) => api.get(`/novels/${id}`),
   create: (data) => api.post('/novels', data),
   bootstrap: (data) => api.post('/novels/bootstrap', data),
+  importJson: (bundle) => api.post('/novels/import-json', { bundle }),
   update: (id, data) => api.put(`/novels/${id}`, data),
   delete: (id) => api.delete(`/novels/${id}`),
 };
@@ -107,6 +119,12 @@ export const configApi = {
   update: (key, value, description) => api.put(`/configs/${key}`, { value, description }),
 };
 
+export const authApi = {
+  login: (username, password) => api.post('/auth/login', { username, password }),
+  logout: () => api.post('/auth/logout'),
+  me: () => api.get('/auth/me'),
+};
+
 export const publishApi = {
   publish: (chapterId, platforms, mode = 'publish') => api.post(`/publish/${chapterId}`, { platforms, mode }),
   login: (platform) => api.post(`/publish/login/${platform}`),
@@ -122,6 +140,10 @@ export const exportApi = {
       responseType: 'text',
     });
   },
+  exportNovelJson: (id) =>
+    api.get(`/novels/${id}/export-json`, {
+      responseType: 'json',
+    }),
 };
 
 export default api;

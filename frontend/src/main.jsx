@@ -6,16 +6,19 @@ import { FeedbackProvider } from './components/ui/FeedbackProvider.jsx'
 import { TooltipProvider } from './components/ui/tooltip.jsx'
 import { Toaster } from './components/ui/sonner.jsx'
 import { AiStatusProvider, AiStatusBar } from './components/AiStatusProvider.jsx'
+import { AuthProvider } from './components/AuthProvider.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <TooltipProvider>
       <FeedbackProvider>
-        <AiStatusProvider>
-          <App />
-          <AiStatusBar />
-          <Toaster position="top-center" richColors />
-        </AiStatusProvider>
+        <AuthProvider>
+          <AiStatusProvider>
+            <App />
+            <AiStatusBar />
+            <Toaster position="top-center" richColors />
+          </AiStatusProvider>
+        </AuthProvider>
       </FeedbackProvider>
     </TooltipProvider>
   </StrictMode>,

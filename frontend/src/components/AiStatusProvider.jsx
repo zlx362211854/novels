@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Bot, ChevronDown, ChevronRight, Loader2, X } from 'lucide-react';
+import { useAuth } from '@/components/AuthProvider';
 
 const AiStatusContext = createContext(null);
 
@@ -53,6 +54,7 @@ function resolveAiStatusEventsUrl() {
 }
 
 export function AiStatusProvider({ children }) {
+  const auth = useAuth();
   const [status, setStatus] = useState(null);
   const [open, setOpen] = useState(false);
   const [taskPanel, setTaskPanelState] = useState(null);
@@ -67,6 +69,14 @@ export function AiStatusProvider({ children }) {
   };
 
   useEffect(() => {
+    if (!auth?.isAuthenticated) {
+      esRef.current?.close();
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      setStatus(null);
+      setOpen(false);
+      return undefined;
+    }
+
     function connect() {
       const es = new EventSource(resolveAiStatusEventsUrl());
       esRef.current = es;
@@ -105,7 +115,7 @@ export function AiStatusProvider({ children }) {
       esRef.current?.close();
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
     };
-  }, []);
+  }, [auth?.isAuthenticated]);
 
   const value = useMemo(() => ({
     status,
@@ -136,6 +146,7 @@ export function useAiStatus() {
 }
 
 export function AiStatusBar() {
+  const auth = useAuth();
   const context = useAiStatus();
   const status = context?.status;
   const open = context?.open;
@@ -149,7 +160,7 @@ export function AiStatusBar() {
     setHistoryExpanded((prev) => ({ ...prev, [index]: !prev[index] }));
   };
 
-  if (!status) return null;
+  if (!auth?.isAuthenticated || !status) return null;
 
   const isDone = status.status === 'done';
   const isError = status.status === 'error';

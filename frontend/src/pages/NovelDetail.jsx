@@ -207,6 +207,26 @@ function NovelDetail() {
     }
   };
 
+  const handleExportJson = async () => {
+    setExporting(true);
+    try {
+      const res = await exportApi.exportNovelJson(id);
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${novel.title}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      feedback.success('已导出 JSON 文件。');
+    } catch (error) {
+      console.error('导出 JSON 失败:', error);
+      feedback.error(error.response?.data?.error || '导出失败，请稍后再试。');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const summary = useMemo(() => {
     const full = architectures.filter((item) => item.level === 'full').length;
     const volume = architectures.filter((item) => item.level === 'volume').length;
@@ -268,6 +288,10 @@ function NovelDetail() {
           <Button variant="outline" size="sm" onClick={() => handleExport('full')} disabled={exporting}>
             {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
             导出
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportJson} disabled={exporting}>
+            {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
+            导出 JSON
           </Button>
           <Button variant="outline" size="sm" asChild>
             <Link to={`/novels/${id}/story-bible`} className="flex items-center justify-center">

@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Link, NavLink, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import ArchitectureManager from './pages/ArchitectureManager';
 import ChapterDetail from './pages/ChapterDetail';
@@ -9,9 +9,42 @@ import NovelDetail from './pages/NovelDetail';
 import NovelList from './pages/NovelList';
 import Settings from './pages/Settings';
 import StoryBibleManager from './pages/StoryBibleManager';
-import { BookOpen, Settings as SettingsIcon } from 'lucide-react';
+import Login from './pages/Login';
+import { useAuth } from './components/AuthProvider';
+import { BookOpen, LogOut, Settings as SettingsIcon } from 'lucide-react';
+import { Button } from './components/ui/button';
+
+function ProtectedRoute({ children }) {
+  const auth = useAuth();
+  const location = useLocation();
+
+  if (auth?.status === 'loading') {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        正在验证登录状态...
+      </div>
+    );
+  }
+
+  if (!auth?.isAuthenticated) {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  return children;
+}
 
 function AppFrame() {
+  const auth = useAuth();
+  const location = useLocation();
+
+  if (location.pathname === '/login') {
+    return (
+      <Routes>
+        <Route path="/login" element={<Login />} />
+      </Routes>
+    );
+  }
+
   return (
     <div className="app-stage">
       <header className="app-chrome sticky top-0 z-40 border-b border-border/80 backdrop-blur-xl">
@@ -52,20 +85,25 @@ function AppFrame() {
               <SettingsIcon className="h-3.5 w-3.5" />
               系统设置
             </NavLink>
+            <Button variant="ghost" size="sm" onClick={() => auth.logout()}>
+              <LogOut className="mr-1.5 h-3.5 w-3.5" />
+              退出
+            </Button>
           </nav>
         </div>
       </header>
       <main>
         <Routes>
-          <Route path="/" element={<NovelList />} />
-          <Route path="/novels/bootstrap" element={<NovelBootstrap />} />
-          <Route path="/novels/:id" element={<NovelDetail />} />
-          <Route path="/novels/:id/story-bible" element={<StoryBibleManager />} />
-          <Route path="/novels/:id/architecture" element={<ArchitectureManager />} />
-          <Route path="/novels/:id/chapters" element={<ChapterManager />} />
-          <Route path="/chapters/:id" element={<ChapterDetail />} />
-          <Route path="/novels/:novelId/multi-chapter-review/:reviewId" element={<MultiChapterReview />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/" element={<ProtectedRoute><NovelList /></ProtectedRoute>} />
+          <Route path="/novels/bootstrap" element={<ProtectedRoute><NovelBootstrap /></ProtectedRoute>} />
+          <Route path="/novels/:id" element={<ProtectedRoute><NovelDetail /></ProtectedRoute>} />
+          <Route path="/novels/:id/story-bible" element={<ProtectedRoute><StoryBibleManager /></ProtectedRoute>} />
+          <Route path="/novels/:id/architecture" element={<ProtectedRoute><ArchitectureManager /></ProtectedRoute>} />
+          <Route path="/novels/:id/chapters" element={<ProtectedRoute><ChapterManager /></ProtectedRoute>} />
+          <Route path="/chapters/:id" element={<ProtectedRoute><ChapterDetail /></ProtectedRoute>} />
+          <Route path="/novels/:novelId/multi-chapter-review/:reviewId" element={<ProtectedRoute><MultiChapterReview /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         </Routes>
       </main>
     </div>

@@ -7,6 +7,7 @@ import * as architectureAiService from '../services/architectureAiService';
 import * as architectureReviewService from '../services/architectureReviewService';
 import * as recurringTaskService from '../services/recurringTaskService';
 import * as exportService from '../services/exportService';
+import * as novelTransferService from '../services/novelTransferService';
 import { chapterGenerationGraph } from '../ai/graphs/chapterGenerationGraph';
 import { novelBootstrapGraph } from '../ai/graphs/novelBootstrapGraph';
 import * as aiStatus from '../services/aiStatusService';
@@ -45,6 +46,19 @@ router.post('/bootstrap', async (req: Request, res: Response) => {
         res.status(201).json({ taskId, ...result.result });
     } catch (error) {
         res.status(500).json({ error: (error as Error).message });
+    }
+});
+
+router.post('/import-json', async (req: Request, res: Response) => {
+    try {
+        const { bundle } = req.body;
+        const result = await novelTransferService.importNovelBundle(bundle);
+        res.status(201).json(result);
+    } catch (error) {
+        const message = (error as Error).message;
+        const status =
+            /不是合法 JSON|缺少|版本不受支持/.test(message) ? 400 : 500;
+        res.status(status).json({ error: message });
     }
 });
 
@@ -146,6 +160,20 @@ router.get('/:id/export', async (req: Request, res: Response) => {
         res.send(result);
     } catch (error) {
         res.status(500).json({ error: (error as Error).message });
+    }
+});
+
+router.get('/:id/export-json', async (req: Request, res: Response) => {
+    try {
+        const novelId = Number(req.params.id);
+        const result = await novelTransferService.exportNovelBundle(novelId);
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename=novel-${novelId}-export.json`);
+        res.json(result);
+    } catch (error) {
+        const message = (error as Error).message;
+        const status = message === '小说不存在' ? 404 : 500;
+        res.status(status).json({ error: message });
     }
 });
 

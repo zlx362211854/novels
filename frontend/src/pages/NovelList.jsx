@@ -6,6 +6,14 @@ import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
 import { CreateNovelModal, NovelProjectCard } from '../components/ui/NovelListParts';
 import { Button } from '../components/ui/button';
 import { Skeleton } from '../components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
 import { Plus, BookOpen, FolderOpen, Calendar } from 'lucide-react';
 
 const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
@@ -24,7 +32,10 @@ function NovelList() {
   const [novels, setNovels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importFile, setImportFile] = useState(null);
   const [newNovel, setNewNovel] = useState({ title: '', description: '', genre: '' });
 
   useEffect(() => {
@@ -109,6 +120,34 @@ function NovelList() {
     }
   };
 
+  const handleImport = async () => {
+    if (!importFile) {
+      feedback.warning('请先选择导出的 JSON 文件。');
+      return;
+    }
+
+    setImporting(true);
+    try {
+      const text = await importFile.text();
+      const bundle = JSON.parse(text);
+      const res = await novelApi.importJson(bundle);
+      feedback.success('小说已导入。');
+      setImportFile(null);
+      setShowImport(false);
+      await loadNovels();
+      navigate(`/novels/${res.data.novelId}`);
+    } catch (error) {
+      console.error('导入小说失败:', error);
+      if (error instanceof SyntaxError) {
+        feedback.error('选择的文件不是合法 JSON。');
+      } else {
+        feedback.error(error.response?.data?.error || '导入失败，请稍后再试。');
+      }
+    } finally {
+      setImporting(false);
+    }
+  };
+
   if (loading) {
     return (
       <PageShell eyebrow="Project Index" title="我的项目" description="加载中...">
@@ -133,6 +172,9 @@ function NovelList() {
       description="把创作项目当成一页页可翻阅的工作文档。进入项目后，可以继续拆架构、写章节、回看版本。"
       actions={
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowImport(true)}>
+            导入小说
+          </Button>
           <Button variant="secondary" onClick={() => navigate('/novels/bootstrap')}>
             AI 创建小说
           </Button>
@@ -189,6 +231,52 @@ function NovelList() {
           onSubmit={handleCreate}
         />
       )}
+
+      <Dialog
+        open={showImport}
+        onOpenChange={(open) => {
+          setShowImport(open);
+          if (!open) {
+            setImportFile(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>导入小说</DialogTitle>
+            <DialogDescription>
+              选择之前导出的 JSON 文件，系统会创建一部新的小说副本，不会覆盖现有项目。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <input
+              type="file"
+              accept="application/json,.json"
+              onChange={(event) => setImportFile(event.target.files?.[0] || null)}
+            />
+            {importFile ? (
+              <p className="text-sm text-muted-foreground">已选择：{importFile.name}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">请选择一份小说导出 JSON 文件。</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowImport(false);
+                setImportFile(null);
+              }}
+              disabled={importing}
+            >
+              取消
+            </Button>
+            <Button onClick={handleImport} disabled={importing}>
+              {importing ? '导入中...' : '开始导入'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }
