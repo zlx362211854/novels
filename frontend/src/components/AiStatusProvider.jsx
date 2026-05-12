@@ -44,6 +44,14 @@ function humanStepLabel(label) {
   return STEP_LABELS[label] || label;
 }
 
+function resolveAiStatusEventsUrl() {
+  const base = import.meta.env.VITE_API_BASE_URL || '/api';
+  if (base.startsWith('http://') || base.startsWith('https://')) {
+    return `${base.replace(/\/$/, '')}/ai-status/events`;
+  }
+  return `${base.replace(/\/$/, '')}/ai-status/events`;
+}
+
 export function AiStatusProvider({ children }) {
   const [status, setStatus] = useState(null);
   const [open, setOpen] = useState(false);
@@ -60,7 +68,7 @@ export function AiStatusProvider({ children }) {
 
   useEffect(() => {
     function connect() {
-      const es = new EventSource('http://localhost:3001/api/ai-status/events');
+      const es = new EventSource(resolveAiStatusEventsUrl());
       esRef.current = es;
 
       es.onmessage = (event) => {

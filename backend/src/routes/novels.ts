@@ -29,7 +29,7 @@ router.post('/', async (req: Request, res: Response) => {
 
 router.post('/bootstrap', async (req: Request, res: Response) => {
     try {
-        const { prompt, constraints } = req.body;
+        const { prompt, constraints, aiConfig } = req.body;
         if (!prompt || !String(prompt).trim()) {
             return res.status(400).json({ error: 'prompt 不能为空' });
         }
@@ -37,6 +37,7 @@ router.post('/bootstrap', async (req: Request, res: Response) => {
         const result = await novelBootstrapGraph.invoke({
             prompt: String(prompt).trim(),
             constraints: constraints || {},
+            aiConfig: aiConfig || null,
             taskId,
             draft: null,
             result: null,

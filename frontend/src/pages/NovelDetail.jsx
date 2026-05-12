@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { architectureApi, chapterApi, exportApi, novelApi, publishApi } from '../services/api';
 import RecurringTaskCard from '../components/RecurringTaskCard';
+import { DEFAULT_CHAPTER_GENERATION_PROMPT_TEMPLATE } from '../lib/defaultChapterPromptTemplate';
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import { PageShell, SectionCard, StatGrid } from '../components/ui/PageShell';
 import { Button } from '../components/ui/button';
@@ -595,7 +596,23 @@ function NovelDetail() {
                 ))}
               </div>
                 <div className="space-y-2">
-                  <Label htmlFor="novel-chapter-template">章节生成 Prompt 模板</Label>
+                  <div className="flex items-center justify-between gap-3">
+                    <Label htmlFor="novel-chapter-template">章节生成 Prompt 模板</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setEditForm((current) => ({
+                        ...current,
+                        aiConfig: {
+                          ...current.aiConfig,
+                          chapterGenerationPromptTemplate: DEFAULT_CHAPTER_GENERATION_PROMPT_TEMPLATE,
+                        },
+                      }))}
+                    >
+                      填入默认模板
+                    </Button>
+                  </div>
                   <Textarea
                     id="novel-chapter-template"
                     rows={14}

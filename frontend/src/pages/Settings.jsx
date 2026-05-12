@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { configApi, publishApi } from '../services/api';
+import { DEFAULT_CHAPTER_GENERATION_PROMPT_TEMPLATE } from '../lib/defaultChapterPromptTemplate';
 import { useFeedback } from '../components/ui/FeedbackProvider';
 import { PageShell, SectionCard } from '../components/ui/PageShell';
 import { Button } from '../components/ui/button';
@@ -418,7 +419,20 @@ function Settings() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="chapter-prompt-template">默认章节生成 Prompt 模板</Label>
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor="chapter-prompt-template">默认章节生成 Prompt 模板</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditForm({
+                      ...editForm,
+                      chapterGenerationPromptTemplate: DEFAULT_CHAPTER_GENERATION_PROMPT_TEMPLATE,
+                    })}
+                  >
+                    填入默认模板
+                  </Button>
+                </div>
                 <Textarea
                   id="chapter-prompt-template"
                   value={editForm.chapterGenerationPromptTemplate}

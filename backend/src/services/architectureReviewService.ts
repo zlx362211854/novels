@@ -175,7 +175,7 @@ function buildDraftChapterArchitectureReviewPrompt(
   draft: NovelBootstrapDraft,
   round: number,
 ): string {
-  const volumeMap = new Map(
+  const volumeMap = new Map<string, DraftArchitecture>(
     draft.volumeArchitectures.map((volume: DraftArchitecture) => [volume.draftId, volume])
   );
   const sampleChapterId = draft.chapterArchitectures[0]?.draftId ?? 'ch_1';
@@ -340,7 +340,7 @@ function buildDraftChapterArchitectureRepairPrompt(
   userPrompt: string,
   round: number,
 ): string {
-  const volumeMap = new Map(
+  const volumeMap = new Map<string, DraftArchitecture>(
     draft.volumeArchitectures.map((volume: DraftArchitecture) => [volume.draftId, volume])
   );
   const sampleChapterId = draft.chapterArchitectures[0]?.draftId ?? 'ch_1';

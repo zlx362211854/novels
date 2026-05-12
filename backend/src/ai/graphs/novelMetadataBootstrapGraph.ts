@@ -3,10 +3,12 @@ import { HumanMessage } from '@langchain/core/messages';
 import { createLLM } from '../llmFactory';
 import { invokeWithStreaming } from '../streaming';
 import { parseJsonWithRepair, strictJsonOutputRules } from '../jsonUtils';
+import { serializeNovelAiConfig } from '../runtimeConfig';
 
 const MetadataBootstrapState = Annotation.Root({
   prompt: Annotation<string>,
   constraints: Annotation<any>,
+  aiConfig: Annotation<any>,
   taskId: Annotation<string | null>,
   result: Annotation<any>,
 });
@@ -83,6 +85,9 @@ async function generateNode(state: typeof MetadataBootstrapState.State) {
     temperature: 0.8,
     maxTokens: 12000,
     graph: 'architectureGeneration',
+    novel: {
+      ai_config: serializeNovelAiConfig(state.aiConfig),
+    },
   });
   const content = await invokeWithStreaming(
     llm,

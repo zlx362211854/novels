@@ -8,6 +8,68 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
+
+const MODEL_OPTIONS = [
+  { value: 'zhipu', label: '智谱 AI' },
+  { value: 'deepseek', label: 'DeepSeek' },
+  { value: 'minimax', label: 'MiniMax' },
+];
+
+const GRAPH_MODEL_FIELDS = [
+  { key: 'architectureGeneration', label: '基础信息/架构生成' },
+  { key: 'chapterBatchGeneration', label: '章架构批量生成' },
+  { key: 'architectureReview', label: '章架构审阅' },
+  { key: 'architectureRepair', label: '章架构修补' },
+];
+
+const emptyProfile = () => ({ provider: '', model: '', maxTokens: '' });
+const defaultBootstrapProfile = () => ({
+  provider: 'deepseek',
+  model: 'deepseek-v4-flash',
+  maxTokens: '12000',
+});
+
+function normalizeProfile(value, fallbackProvider = '') {
+  if (!value) return { provider: fallbackProvider, model: '', maxTokens: '' };
+  if (typeof value === 'string') return { provider: value, model: '', maxTokens: '' };
+  return {
+    provider: value.provider || fallbackProvider || '',
+    model: value.model || '',
+    maxTokens: value.maxTokens ?? '',
+  };
+}
+
+function serializeProfile(profile) {
+  if (!profile?.provider) return null;
+  const maxTokens = Number(profile.maxTokens);
+  return {
+    provider: profile.provider,
+    model: profile.model?.trim() || undefined,
+    maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? Math.floor(maxTokens) : undefined,
+  };
+}
+
+function serializeAiConfig(aiConfig) {
+  const graphModels = Object.fromEntries(
+    Object.entries(aiConfig?.graphModels || {})
+      .map(([key, value]) => [key, serializeProfile(value)])
+      .filter(([, value]) => Boolean(value))
+  );
+
+  return {
+    defaultModel: aiConfig?.defaultProfile?.provider || aiConfig?.defaultModel || undefined,
+    defaultProfile: serializeProfile(aiConfig?.defaultProfile),
+    graphModels,
+    chapterGenerationPromptTemplate: aiConfig?.chapterGenerationPromptTemplate?.trim() || undefined,
+  };
+}
 
 function NovelBootstrap() {
   const navigate = useNavigate();
@@ -19,6 +81,12 @@ function NovelBootstrap() {
     volumeCount: '4',
     chaptersPerVolume: '12',
     tone: '',
+    aiConfig: {
+      defaultModel: 'deepseek',
+      defaultProfile: defaultBootstrapProfile(),
+      graphModels: {},
+      chapterGenerationPromptTemplate: '',
+    },
   });
 
   const handleChange = (key, value) => {
@@ -42,6 +110,7 @@ function NovelBootstrap() {
           chaptersPerVolume: Number(form.chaptersPerVolume) || undefined,
           tone: form.tone.trim() || undefined,
         },
+        aiConfig: serializeAiConfig(form.aiConfig),
       });
       feedback.success(`已创建小说《${response.data.title}》。`);
       navigate(`/novels/${response.data.novelId}`);
@@ -109,6 +178,145 @@ function NovelBootstrap() {
                 value={form.chaptersPerVolume}
                 onChange={(event) => handleChange('chaptersPerVolume', event.target.value)}
               />
+            </div>
+          </div>
+
+          <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+            <div>
+              <p className="text-sm font-medium">小说级 AI 配置</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                这里的配置会优先于系统设置，并用于这次 AI 创建小说流程。
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>小说默认模型</Label>
+              <Select
+                value={form.aiConfig?.defaultProfile?.provider || form.aiConfig?.defaultModel || '__default__'}
+                onValueChange={(value) => handleChange('aiConfig', {
+                  ...form.aiConfig,
+                  defaultModel: value === '__default__' ? '' : value,
+                  defaultProfile: value === '__default__'
+                    ? emptyProfile()
+                    : {
+                        ...normalizeProfile(form.aiConfig?.defaultProfile),
+                        provider: value,
+                      },
+                })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__default__">继承系统默认模型</SelectItem>
+                  {MODEL_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="bootstrap-model-version">默认模型版本</Label>
+                <Input
+                  id="bootstrap-model-version"
+                  value={form.aiConfig?.defaultProfile?.model || ''}
+                  onChange={(event) => handleChange('aiConfig', {
+                    ...form.aiConfig,
+                    defaultProfile: {
+                      ...normalizeProfile(form.aiConfig?.defaultProfile, form.aiConfig?.defaultModel),
+                      model: event.target.value,
+                    },
+                  })}
+                  placeholder="例如 glm-5 / deepseek-v4-pro"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="bootstrap-model-max-tokens">默认 Max Tokens</Label>
+                <Input
+                  id="bootstrap-model-max-tokens"
+                  type="number"
+                  min="1"
+                  value={form.aiConfig?.defaultProfile?.maxTokens ?? ''}
+                  onChange={(event) => handleChange('aiConfig', {
+                    ...form.aiConfig,
+                    defaultProfile: {
+                      ...normalizeProfile(form.aiConfig?.defaultProfile, form.aiConfig?.defaultModel),
+                      maxTokens: event.target.value,
+                    },
+                  })}
+                  placeholder="留空则使用默认值"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              {GRAPH_MODEL_FIELDS.map((field) => (
+                <div key={field.key} className="space-y-2">
+                  <Label>{field.label}</Label>
+                  <div className="space-y-2 rounded-md border bg-background/70 p-3">
+                    <Select
+                      value={form.aiConfig?.graphModels?.[field.key]?.provider || '__default__'}
+                      onValueChange={(value) => handleChange('aiConfig', {
+                        ...form.aiConfig,
+                        graphModels: {
+                          ...form.aiConfig?.graphModels,
+                          [field.key]: value === '__default__'
+                            ? undefined
+                            : {
+                                ...normalizeProfile(form.aiConfig?.graphModels?.[field.key]),
+                                provider: value,
+                              },
+                        },
+                      })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__default__">继承小说默认模型</SelectItem>
+                        {MODEL_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {form.aiConfig?.graphModels?.[field.key]?.provider ? (
+                      <>
+                        <Input
+                          value={form.aiConfig?.graphModels?.[field.key]?.model || ''}
+                          onChange={(event) => handleChange('aiConfig', {
+                            ...form.aiConfig,
+                            graphModels: {
+                              ...form.aiConfig?.graphModels,
+                              [field.key]: {
+                                ...normalizeProfile(form.aiConfig?.graphModels?.[field.key]),
+                                model: event.target.value,
+                              },
+                            },
+                          })}
+                          placeholder="模型版本"
+                        />
+                        <Input
+                          type="number"
+                          min="1"
+                          value={form.aiConfig?.graphModels?.[field.key]?.maxTokens ?? ''}
+                          onChange={(event) => handleChange('aiConfig', {
+                            ...form.aiConfig,
+                            graphModels: {
+                              ...form.aiConfig?.graphModels,
+                              [field.key]: {
+                                ...normalizeProfile(form.aiConfig?.graphModels?.[field.key]),
+                                maxTokens: event.target.value,
+                              },
+                            },
+                          })}
+                          placeholder="Max Tokens"
+                        />
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

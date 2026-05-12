@@ -99,22 +99,29 @@ export async function parseJsonWithRepair(
   llm: ChatOpenAI,
   repairPromptBuilder: (raw: string) => string
 ): Promise<any> {
+  const originalText = stripCodeFences(rawContent || '');
+  if (!originalText) {
+    throw new Error('模型返回空响应，缺少可解析的 JSON 内容');
+  }
+
   try {
     return parseJson(rawContent);
   } catch (error) {
-    const text = stripCodeFences(rawContent || '');
-    const tail = text.slice(Math.max(0, text.length - 800));
+    const tail = originalText.slice(Math.max(0, originalText.length - 800));
     console.error('JSON 解析失败，尝试修复...', {
       error: (error as Error).message,
-      rawLength: text.length,
+      rawLength: originalText.length,
       rawTail: tail,
     });
     const repaired = await llm.invoke([new HumanMessage(repairPromptBuilder(rawContent))]);
     const repairedContent = typeof repaired.content === 'string' ? repaired.content : JSON.stringify(repaired.content);
+    const repairedText = stripCodeFences(repairedContent || '');
+    if (!repairedText) {
+      throw new Error('JSON 修复失败：修复调用返回空响应');
+    }
     try {
       return parseJson(repairedContent);
     } catch (repairError) {
-      const repairedText = stripCodeFences(repairedContent || '');
       const repairedTail = repairedText.slice(Math.max(0, repairedText.length - 800));
       console.error('JSON 修复后仍解析失败', {
         error: (repairError as Error).message,

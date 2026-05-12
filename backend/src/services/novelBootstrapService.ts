@@ -1,6 +1,8 @@
-import { sequelize, Novel, Architecture, StoryBibleEntry } from '../models/sequelize';
 import * as novelService from './novelService';
 import * as storyBibleService from './storyBibleService';
+import * as architectureService from './architectureService';
+import * as architectureReviewService from './architectureReviewService';
+import { NovelAiConfig } from '../ai/runtimeConfig';
 
 export interface DraftArchitecture {
   draftId: string;
@@ -16,8 +18,9 @@ export interface DraftChapterArchitecture extends DraftArchitecture {
   parentDraftVolumeId: string;
 }
 
-export interface NovelBootstrapDraft {
+export interface NovelBootstrapMetadata {
   prompt: string;
+  aiConfig?: NovelAiConfig | null;
   novel: {
     title: string;
     description: string;
@@ -35,6 +38,9 @@ export interface NovelBootstrapDraft {
     arcs: string[];
     bibleSummary: string;
   };
+}
+
+export interface NovelBootstrapDraft extends NovelBootstrapMetadata {
   storyBibleEntries: Array<{
     type: string;
     title: string;
@@ -47,131 +53,109 @@ export interface NovelBootstrapDraft {
   chapterArchitectures: DraftChapterArchitecture[];
 }
 
-function stringifyJson(value: unknown): string | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value === 'string') {
-    try {
-      JSON.parse(value);
-      return value;
-    } catch {
-      return JSON.stringify(value);
-    }
-  }
-  return JSON.stringify(value);
-}
-
-function buildFullMetadata(draft: NovelBootstrapDraft): Record<string, unknown> {
+function buildFullMetadata(metadata: NovelBootstrapMetadata, fullArchitecture: DraftArchitecture): Record<string, unknown> {
   return {
-    prompt: draft.prompt,
-    cast: draft.cast,
-    story: draft.story,
+    prompt: metadata.prompt,
+    cast: metadata.cast,
+    story: metadata.story,
+    generatedTheme: fullArchitecture.metadata?.theme || null,
+    endingDirection: fullArchitecture.metadata?.endingDirection || null,
   };
 }
 
-export async function saveNovelBootstrapDraft(draft: NovelBootstrapDraft): Promise<any> {
-  let createdNovelId: number | null = null;
+export async function createBootstrapNovel(metadata: NovelBootstrapMetadata): Promise<any> {
+  return novelService.create({
+    title: metadata.novel.title,
+    description: metadata.novel.description,
+    genre: metadata.novel.genre,
+    aiConfig: metadata.aiConfig || undefined,
+  });
+}
 
-  try {
-    const persisted = await sequelize.transaction(async (transaction) => {
-      const novel = await Novel.create(
-        {
-          title: draft.novel.title,
-          description: draft.novel.description || null,
-          genre: draft.novel.genre || null,
-          publish_config: null,
-          ai_config: null,
-        },
-        { transaction }
-      );
-      createdNovelId = novel.id;
-
-      const fullArchitecture = await Architecture.create(
-        {
-          novel_id: novel.id,
-          level: 'full',
-          parent_id: null,
-          title: draft.fullArchitecture.title,
-          plot_outline: draft.fullArchitecture.plotOutline || null,
-          characters: stringifyJson(draft.fullArchitecture.characters ?? []),
-          world_setting: stringifyJson(draft.fullArchitecture.worldSetting ?? {}),
-          emotional_tone: draft.fullArchitecture.emotionalTone || null,
-          metadata: stringifyJson({
-            ...(draft.fullArchitecture.metadata || {}),
-            ...buildFullMetadata(draft),
-          }),
-        },
-        { transaction }
-      );
-
-      const volumeIdMap = new Map<string, number>();
-
-      for (const volume of draft.volumeArchitectures) {
-        const createdVolume = await Architecture.create(
-          {
-            novel_id: novel.id,
-            level: 'volume',
-            parent_id: fullArchitecture.id,
-            title: volume.title,
-            plot_outline: volume.plotOutline || null,
-            characters: stringifyJson(volume.characters ?? []),
-            world_setting: stringifyJson(volume.worldSetting ?? {}),
-            emotional_tone: volume.emotionalTone || null,
-            metadata: stringifyJson(volume.metadata ?? {}),
-          },
-          { transaction }
-        );
-        volumeIdMap.set(volume.draftId, createdVolume.id);
-      }
-
-      for (const chapter of draft.chapterArchitectures) {
-        await Architecture.create(
-          {
-            novel_id: novel.id,
-            level: 'chapter',
-            parent_id: volumeIdMap.get(chapter.parentDraftVolumeId) ?? null,
-            title: chapter.title,
-            plot_outline: chapter.plotOutline || null,
-            characters: stringifyJson(chapter.characters ?? []),
-            world_setting: stringifyJson(chapter.worldSetting ?? {}),
-            emotional_tone: chapter.emotionalTone || null,
-            metadata: stringifyJson(chapter.metadata ?? {}),
-          },
-          { transaction }
-        );
-      }
-
-      return { novelId: novel.id };
+export async function saveBootstrapStoryBible(novelId: number, entries: Array<{
+  type: string;
+  title: string;
+  content: string;
+  priority: number;
+  labels: string[];
+}>): Promise<void> {
+  for (const entry of entries) {
+    await storyBibleService.createEntry({
+      novelId,
+      type: entry.type,
+      title: entry.title,
+      content: entry.content,
+      priority: entry.priority,
+      labels: entry.labels,
     });
-
-    if (!createdNovelId) {
-      throw new Error('小说保存失败');
-    }
-
-    for (const entry of draft.storyBibleEntries) {
-      await storyBibleService.createEntry({
-        novelId: createdNovelId,
-        type: entry.type,
-        title: entry.title,
-        content: entry.content,
-        priority: entry.priority,
-        labels: entry.labels,
-      });
-    }
-
-    return {
-      novel: await novelService.findById(createdNovelId),
-      counts: {
-        volumes: draft.volumeArchitectures.length,
-        chapters: draft.chapterArchitectures.length,
-        storyBibleEntries: draft.storyBibleEntries.length,
-      },
-      persisted,
-    };
-  } catch (error) {
-    if (createdNovelId) {
-      await StoryBibleEntry.destroy({ where: { novel_id: createdNovelId } }).catch(() => undefined);
-      await novelService.deleteNovel(createdNovelId).catch(() => undefined);
-    }
-    throw error;
   }
+}
+
+export async function saveBootstrapFullArchitecture(
+  novelId: number,
+  metadata: NovelBootstrapMetadata,
+  fullArchitecture: DraftArchitecture,
+): Promise<any> {
+  return architectureService.create({
+    novelId,
+    level: 'full',
+    parentId: null,
+    title: fullArchitecture.title,
+    plotOutline: fullArchitecture.plotOutline,
+    characters: (fullArchitecture.characters ?? []) as object,
+    worldSetting: (fullArchitecture.worldSetting ?? {}) as object,
+    emotionalTone: fullArchitecture.emotionalTone ?? '',
+    metadata: buildFullMetadata(metadata, fullArchitecture),
+  });
+}
+
+export async function saveBootstrapVolumeArchitectures(
+  novelId: number,
+  fullArchitectureId: number,
+  volumes: DraftArchitecture[],
+): Promise<any[]> {
+  const createdVolumes = [];
+  for (const volume of volumes) {
+    const created = await architectureService.create({
+      novelId,
+      level: 'volume',
+      parentId: fullArchitectureId,
+      title: volume.title,
+      plotOutline: volume.plotOutline,
+      characters: (volume.characters ?? []) as object,
+      worldSetting: (volume.worldSetting ?? {}) as object,
+      emotionalTone: volume.emotionalTone ?? '',
+      metadata: {
+        ...(volume.metadata || {}),
+        draftId: volume.draftId,
+      },
+    });
+    createdVolumes.push(created);
+  }
+  return createdVolumes;
+}
+
+export async function applyPersistedChapterArchitectureReviewLoop(
+  novelId: number,
+  rounds: number,
+  taskId?: string | null,
+): Promise<Array<{ round: number; reviewResult: any; repairResult: any; applyResult: any }>> {
+  const history: Array<{ round: number; reviewResult: any; repairResult: any; applyResult: any }> = [];
+  for (let round = 1; round <= rounds; round += 1) {
+    const reviewResult = await architectureReviewService.reviewChapterArchitectures(novelId, undefined, taskId ?? null);
+    const repairResult = await architectureReviewService.repairChapterArchitectures(
+      novelId,
+      reviewResult,
+      '请只修补受影响章架构，必要时新增章架构，不要删除章节。',
+      undefined,
+      taskId ?? null,
+    );
+    const applyResult = await architectureReviewService.applyChapterArchitectureRepair(
+      novelId,
+      repairResult,
+      taskId ?? null,
+    );
+    history.push({ round, reviewResult, repairResult, applyResult });
+  }
+  return history;
 }

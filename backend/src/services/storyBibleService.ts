@@ -128,8 +128,6 @@ async function findEntryRecord(novelId: number | string, entryId: number | strin
 
 async function createEntry(data: CreateEntryInput) {
   const normalized = normalizeStoryBibleEntry(data);
-  const embedding = await embedText(buildEmbeddingText(normalized.title, normalized.content));
-
   const entry = await StoryBibleEntry.create({
     novel_id: data.novelId,
     entry_type: normalized.type,
@@ -142,13 +140,16 @@ async function createEntry(data: CreateEntryInput) {
   });
 
   try {
+    const embedding = await embedText(buildEmbeddingText(normalized.title, normalized.content));
     await upsertStoryBibleEntryVector(sequelize, {
       entryId: entry.id,
       embedding,
     });
   } catch (error) {
-    await entry.destroy();
-    throw error;
+    console.warn(
+      `[story-bible] embedding skipped for entry ${entry.id} (novelId=${data.novelId}, title="${normalized.title}")`,
+      error instanceof Error ? error.message : error
+    );
   }
 
   return serializeEntry(entry);

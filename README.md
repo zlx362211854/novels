@@ -118,6 +118,24 @@ npm install
 npm run dev
 ```
 
+## Render Deployment
+
+Recommended Render topology:
+
+- frontend: `Static Site`
+- backend: `Web Service`
+- database: `SQLite` on a `Persistent Disk`
+
+Important constraints for the current SQLite-based deployment:
+
+- backend must run as a single instance
+- backend deploys are not zero-downtime when a disk is attached
+- frontend must use a production API base URL, not `localhost`
+
+Deployment guide:
+
+- [Render deployment guide](/Users/linkzhao/workspace/AI/books_manage/docs/deploy-render.md)
+
 ## Demo Video Assets
 
 HyperFrames source:
