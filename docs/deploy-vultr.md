@@ -167,6 +167,11 @@ git pull
 docker compose up -d --build
 ```
 
+GitHub Actions deploy note:
+
+- If you use SSH-based auto deploy, `DEPLOY_HOST` must be a plain host or IP, for example `novel.stackfield.org` or `123.123.123.123`.
+- Do not include `http://`, `https://`, username, or port inside `DEPLOY_HOST`.
+
 ## 10. Backup the database
 
 This project stores SQLite data in the Docker volume `data-volume`.
