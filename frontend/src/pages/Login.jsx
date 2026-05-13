@@ -13,7 +13,7 @@ function Login() {
   const feedback = useFeedback();
   const auth = useAuth();
   const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('123456aA');
+  const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const redirectTo = location.state?.from?.pathname || '/';
