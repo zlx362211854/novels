@@ -11,9 +11,15 @@ Recommended target:
 
 This project runs as:
 
-- frontend container on port `80`
-- backend container on port `3001`
+- frontend container bound to `127.0.0.1:8081`
+- backend container bound to `127.0.0.1:3001`
 - SQLite database stored in Docker volume `data-volume`
+
+This means the app is no longer exposed directly from Docker on public port `80`.
+You should put a host-level reverse proxy such as Nginx or Caddy in front of it and route:
+
+- `novel.stackfield.org` -> `127.0.0.1:8081`
+- `/api` on that same host -> `127.0.0.1:3001`
 
 ## 1. Connect to the server
 
@@ -51,8 +57,8 @@ docker compose version
 In Vultr firewall or the instance firewall, allow:
 
 - `22` for SSH
-- `80` for web access
-- `443` for HTTPS if you add TLS later
+- `80` for the host-level reverse proxy
+- `443` for HTTPS on the host-level reverse proxy
 
 If you use `ufw` on the server:
 
@@ -128,17 +134,49 @@ docker compose logs -f backend
 docker compose logs -f frontend
 ```
 
+At this point the containers are only reachable from the server itself:
+
+- frontend: `http://127.0.0.1:8081`
+- backend: `http://127.0.0.1:3001`
+
+You still need a host-level reverse proxy for public access.
+
+Example Nginx server block:
+
+```nginx
+server {
+    listen 80;
+    server_name novel.stackfield.org;
+
+    location / {
+        proxy_pass http://127.0.0.1:8081;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:3001/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
 ## 7. Verify the deployment
 
 Run on the server:
 
 ```bash
-curl http://127.0.0.1/api/health
+curl http://127.0.0.1:3001/api/health
+curl http://127.0.0.1:8081
 ```
 
 Then test from your browser:
 
-- `http://<YOUR_SERVER_IP>/`
 - `http://novel.stackfield.org/`
 
 Expected health response:
@@ -221,11 +259,10 @@ docker compose logs --tail=200 backend
 
 ## 12. Optional next step: HTTPS
 
-The current repo-level Docker Compose setup exposes plain HTTP on port `80`.
+For HTTPS, terminate TLS at the host-level reverse proxy:
 
-For HTTPS, the clean next steps are:
+- use Caddy for automatic certificates, or
+- use host-level Nginx with Certbot, or
+- put Cloudflare in front and later add a proper origin cert
 
-- put Cloudflare in front and later add a proper origin cert, or
-- add host-level Caddy / Nginx as TLS terminator
-
-Do not use self-signed certs directly in the browser-facing path unless you only access it privately.
+Do not terminate TLS inside each Docker app container unless you have a specific reason to do so.
