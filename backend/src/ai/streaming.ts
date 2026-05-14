@@ -1,5 +1,7 @@
 import * as aiStatus from '../services/aiStatusService';
 
+const DEFAULT_AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS || 10 * 60 * 1000);
+
 function chunkToText(content: any): string {
   if (!content) return '';
   if (typeof content === 'string') return content;
@@ -48,34 +50,71 @@ export async function invokeWithStreaming(
     signal?: AbortSignal;
     taskId?: string | null;
     resetStream?: boolean;
+    timeoutMs?: number;
   } = {}
 ): Promise<string> {
-  const { signal, taskId = null, resetStream = true } = options;
+  const { signal, taskId = null, resetStream = true, timeoutMs = DEFAULT_AI_REQUEST_TIMEOUT_MS } = options;
 
   if (resetStream) {
     aiStatus.setStream(taskId, '');
   }
 
-  let fullText = '';
-  try {
-    const stream = await llm.stream(messages, { signal });
-
-    for await (const chunk of stream) {
-      const text = extractChunkText(chunk);
-      if (!text) continue;
-      fullText += text;
-      aiStatus.appendStream(taskId, text);
+  const timeoutController = new AbortController();
+  const timeoutError = new Error(`AI 请求超时（>${Math.round(timeoutMs / 1000)}s）`);
+  const onAbort = () => timeoutController.abort(signal?.reason);
+  const timer = setTimeout(() => {
+    timeoutController.abort(timeoutError);
+  }, timeoutMs);
+  if (signal) {
+    if (signal.aborted) {
+      onAbort();
+    } else {
+      signal.addEventListener('abort', onAbort, { once: true });
     }
-  } catch (error) {
-    // Fall through to the non-streaming path below.
-    console.warn('[AI] 流式调用失败，回退到普通 invoke:', (error as Error).message);
   }
 
-  if (!fullText) {
-    const response = await llm.invoke(messages, { signal });
-    fullText = extractChunkText(response);
-    if (fullText) {
-      aiStatus.setStream(taskId, fullText);
+  const effectiveSignal = timeoutController.signal;
+  let fullText = '';
+  try {
+    try {
+      const stream = await llm.stream(messages, { signal: effectiveSignal });
+
+      for await (const chunk of stream) {
+        const text = extractChunkText(chunk);
+        if (!text) continue;
+        fullText += text;
+        aiStatus.appendStream(taskId, text);
+      }
+    } catch (error) {
+      if (effectiveSignal.aborted) {
+        throw timeoutController.signal.reason instanceof Error
+          ? timeoutController.signal.reason
+          : error;
+      }
+      // Fall through to the non-streaming path below.
+      console.warn('[AI] 流式调用失败，回退到普通 invoke:', (error as Error).message);
+    }
+
+    if (!fullText) {
+      try {
+        const response = await llm.invoke(messages, { signal: effectiveSignal });
+        fullText = extractChunkText(response);
+        if (fullText) {
+          aiStatus.setStream(taskId, fullText);
+        }
+      } catch (error) {
+        if (effectiveSignal.aborted) {
+          throw timeoutController.signal.reason instanceof Error
+            ? timeoutController.signal.reason
+            : error;
+        }
+        throw error;
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+    if (signal) {
+      signal.removeEventListener('abort', onAbort);
     }
   }
 

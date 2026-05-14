@@ -158,8 +158,13 @@ async function restoreVersion(chapterId: number | string, versionNumber: number)
   return update(chapterId, { content: version.content });
 }
 
-async function generate(chapterId: number | string, signal?: AbortSignal, userPrompt: string = ''): Promise<any> {
-  const taskId = `generate-${chapterId}-${Date.now()}`;
+async function generate(
+  chapterId: number | string,
+  signal?: AbortSignal,
+  userPrompt: string = '',
+  externalTaskId?: string
+): Promise<any> {
+  const taskId = externalTaskId || `generate-${chapterId}-${Date.now()}`;
 
   try {
     const result = await chapterGenerationGraph.invoke(

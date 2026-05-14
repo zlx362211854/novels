@@ -141,27 +141,37 @@ router.post('/:id/review', async (req: Request, res: Response) => {
 });
 
 router.post('/:id/generate', async (req: Request, res: Response) => {
-  const ac = new AbortController();
-  setMaxListeners(30, ac.signal);
-  res.on('close', () => {
-    if (!res.writableEnded) {
-      console.log('[abort] 客户端断开 → chapter/generate 已中止');
-      ac.abort();
-    }
-  });
   try {
     (req as any).setTimeout(0);
     const { userPrompt } = req.body;
-    const result = await chapterService.generate(
-      String(req.params.id),
-      ac.signal,
-      typeof userPrompt === 'string' ? userPrompt : ''
-    );
-    res.json(result);
+    const taskId = `generate-${req.params.id}-${Date.now()}`;
+
+    void chapterService
+      .generate(
+        String(req.params.id),
+        undefined,
+        typeof userPrompt === 'string' ? userPrompt : '',
+        taskId
+      )
+      .catch((error) => {
+        console.error(`[chapter-generate] 后台任务失败 taskId=${taskId} chapterId=${req.params.id}`, error);
+      });
+
+    res.status(202).json({
+      taskId,
+      status: 'accepted',
+    });
   } catch (error) {
-    if (ac.signal.aborted) return;
     res.status(500).json({ error: (error as Error).message });
   }
+});
+
+router.get('/generate-tasks/:taskId', async (req: Request, res: Response) => {
+  const task = aiStatus.getTask(String(req.params.taskId));
+  if (!task) {
+    return res.status(404).json({ error: '任务不存在或已过期' });
+  }
+  res.json(task);
 });
 
 // GET /:id/memory — 获取章节记忆卡

@@ -473,11 +473,12 @@ function ArchitectureManager() {
     try {
       const res = await architectureApi.generateChapterContent(id, chapterArch.id);
       const generatedChapter = res.data?.chapter;
-      if (!generatedChapter) {
-        throw new Error('生成接口未返回章节数据');
+      const taskId = res.data?.taskId;
+      if (!generatedChapter || !taskId) {
+        throw new Error('生成接口未返回任务信息');
       }
 
-      feedback.success(`「${chapterArch.title}」已生成并保存为第 ${generatedChapter.chapter_number} 章。`);
+      feedback.success(`「${chapterArch.title}」已创建生成任务，页面关闭后也会继续执行。`);
       loadData();
     } catch (error) {
       console.error('生成章节正文失败:', error);
@@ -547,13 +548,11 @@ function ArchitectureManager() {
     setBatchGeneratingContent(true);
     try {
       const res = await architectureApi.batchGenerateChapters(id, volume.id);
-      const successCount = res.data.filter((item) => item.success).length;
-      const failCount = res.data.filter((item) => !item.success).length;
-      feedback.success(`批量生成完成：成功 ${successCount} 章，失败 ${failCount} 章。`, {
-        title: '正文生产完成',
+      const total = Number(res.data?.total || 0);
+      feedback.success(`已启动「${volume.title}」批量生成任务，共 ${total} 章。页面关闭后也会继续执行。`, {
+        title: '正文生产已开始',
         duration: 4800,
       });
-      loadData();
     } catch (error) {
       console.error('批量生成失败:', error);
       feedback.error(error.response?.data?.error || '批量生成失败，请稍后再试。');

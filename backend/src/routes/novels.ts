@@ -263,8 +263,6 @@ router.post('/:id/batch-create-chapter-architectures', async (req: Request, res:
 
 // 生成单章正文
 router.post('/:id/generate-chapter-content', async (req: Request, res: Response) => {
-    const ac = new AbortController();
-    res.on('close', () => { if (!res.writableEnded) ac.abort(); });
     try {
         const { chapterArchId } = req.body;
         if (!chapterArchId) return res.status(400).json({ error: 'chapterArchId 不能为空' });
@@ -286,22 +284,21 @@ router.post('/:id/generate-chapter-content', async (req: Request, res: Response)
         });
 
         const taskId = randomUUID();
-        const result = await chapterGenerationGraph.invoke(
-            { chapterId: chapter.id, signal: ac.signal, taskId },
-            { signal: ac.signal }
-        );
-        res.json({ chapter: result.updatedChapter });
+        void chapterService.generate(String(chapter.id), undefined, '', taskId).catch((error) => {
+            console.error(
+                `[chapter-generate] 后台任务失败 taskId=${taskId} chapterId=${chapter.id} architectureId=${chapterArchId}`,
+                error
+            );
+        });
+        res.status(202).json({ taskId, status: 'accepted', chapter });
     } catch (error) {
-        if (ac.signal.aborted) return;
         res.status(500).json({ error: (error as Error).message });
     }
 });
 
 // 批量生成某卷正文
 router.post('/:id/batch-generate-chapters', async (req: Request, res: Response) => {
-    const ac = new AbortController();
     const taskId = randomUUID();
-    res.on('close', () => { if (!res.writableEnded) ac.abort(); });
     try {
         const { volumeId } = req.body;
         if (!volumeId) return res.status(400).json({ error: 'volumeId 不能为空' });
@@ -322,44 +319,48 @@ router.post('/:id/batch-generate-chapters', async (req: Request, res: Response) 
         const existingChapters = await chapterService.findByNovelId(String(req.params.id));
         let maxNum = existingChapters.reduce((m: number, c: any) => Math.max(m, c.chapter_number || 0), 0);
 
-        const results = [];
-        for (const [index, arch] of chapterArchs.entries()) {
-            if (ac.signal.aborted) break;
+        void (async () => {
+            const results = [];
             try {
-                aiStatus.step(taskId, index, stepLabels[index] || `生成章节 ${index + 1}`);
-                // 如果已有正文跳过
-                const existing = existingChapters.find((c: any) => c.architecture_id === arch.id);
-                if (existing) {
-                    aiStatus.setStream(taskId, `已存在正文，跳过「${arch.title}」`);
-                    results.push({ archId: arch.id, success: true, chapter: existing });
-                    continue;
-                }
+                for (const [index, arch] of chapterArchs.entries()) {
+                    try {
+                        aiStatus.step(taskId, index, stepLabels[index] || `生成章节 ${index + 1}`);
+                        const existing = existingChapters.find((c: any) => c.architecture_id === arch.id);
+                        if (existing) {
+                            aiStatus.setStream(taskId, `已存在正文，跳过「${arch.title}」`);
+                            results.push({ archId: arch.id, success: true, chapter: existing });
+                            continue;
+                        }
 
-                const chapter = await chapterService.create({
-                    novelId: Number(req.params.id),
-                    architectureId: arch.id,
-                    chapterNumber: ++maxNum,
-                    title: arch.title,
-                    content: '',
-                    status: 'generating',
-                });
-                aiStatus.setStream(taskId, `正在生成「${arch.title}」的正文...`);
-                const result = await chapterGenerationGraph.invoke(
-                    { chapterId: chapter.id, signal: ac.signal, taskId: null },
-                    { signal: ac.signal }
-                );
-                aiStatus.setStream(taskId, `已完成「${arch.title}」`);
-                results.push({ archId: arch.id, success: true, chapter: result.updatedChapter });
-            } catch (err: any) {
-                aiStatus.appendStream(taskId, `\n\n「${arch.title}」失败：${err.message}`);
-                results.push({ archId: arch.id, success: false, error: err.message });
+                        const chapter = await chapterService.create({
+                            novelId: Number(req.params.id),
+                            architectureId: arch.id,
+                            chapterNumber: ++maxNum,
+                            title: arch.title,
+                            content: '',
+                            status: 'generating',
+                        });
+                        aiStatus.setStream(taskId, `正在生成「${arch.title}」的正文...`);
+                        await chapterGenerationGraph.invoke(
+                            { chapterId: chapter.id, signal: undefined, taskId: null },
+                            {}
+                        );
+                        aiStatus.setStream(taskId, `已完成「${arch.title}」`);
+                        results.push({ archId: arch.id, success: true, chapterId: chapter.id });
+                    } catch (err: any) {
+                        aiStatus.appendStream(taskId, `\n\n「${arch.title}」失败：${err.message}`);
+                        results.push({ archId: arch.id, success: false, error: err.message });
+                    }
+                }
+                aiStatus.finish(taskId);
+            } catch (error) {
+                aiStatus.error(taskId, (error as Error).message);
+                console.error(`[batch-generate] 后台任务失败 taskId=${taskId} volumeId=${volumeId}`, error);
             }
-        }
-        aiStatus.finish(taskId);
-        res.json(results);
+        })();
+
+        res.status(202).json({ taskId, status: 'accepted', total: chapterArchs.length });
     } catch (error) {
-        if (ac.signal.aborted) return;
-        aiStatus.error(taskId, (error as Error).message);
         res.status(500).json({ error: (error as Error).message });
     }
 });

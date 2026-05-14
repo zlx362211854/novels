@@ -2,6 +2,7 @@ import { Annotation, StateGraph, START, END } from '@langchain/langgraph';
 import { ScheduledTask, Chapter } from '../../models/sequelize';
 import { createProgressTracker, ProgressTracker } from '../progressAdapter';
 import * as recurringTaskService from '../../services/recurringTaskService';
+import * as aiStatus from '../../services/aiStatusService';
 import { chapterGenerationGraph } from './chapterGenerationGraph';
 
 const MAX_CHAPTERS_PER_RUN = 50;
@@ -132,6 +133,7 @@ async function generateChaptersNode(state: typeof RecurringTaskState.State) {
       continue;
     }
     const arch = state.pending[i].architecture;
+    const subTaskId = `recurring-${state.recurringTaskId}-${arch.id}-${Date.now()}`;
     try {
       const chapter = await ensureChapterRow(
         state.novelId,
@@ -139,7 +141,6 @@ async function generateChaptersNode(state: typeof RecurringTaskState.State) {
         arch.title || '未命名章节'
       );
       // Reuse the canonical generate → review → revise loop.
-      const subTaskId = `recurring-${state.recurringTaskId}-${chapter.id}-${Date.now()}`;
       await chapterGenerationGraph.invoke(
         {
           chapterId: chapter.id,
@@ -160,6 +161,7 @@ async function generateChaptersNode(state: typeof RecurringTaskState.State) {
       summary.generated.push(chapter.id);
     } catch (err: any) {
       const reason = err?.message || String(err);
+      aiStatus.error(subTaskId, reason);
       console.error(
         `[recurring-graph] 章节生成失败 archId=${arch.id}: ${reason}`
       );

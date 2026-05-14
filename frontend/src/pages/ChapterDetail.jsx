@@ -104,6 +104,7 @@ function ChapterDetail() {
   const [regeneratingMemory, setRegeneratingMemory] = useState(false);
   const [reviseIdea, setReviseIdea] = useState('');
   const [generatePrompt, setGeneratePrompt] = useState('');
+  const [generateTaskId, setGenerateTaskId] = useState(searchParams.get('generateTaskId') || '');
   const [tunePrompt, setTunePrompt] = useState('');
   const [previousChapter, setPreviousChapter] = useState(null);
   const [nextChapter, setNextChapter] = useState(null);
@@ -115,6 +116,11 @@ function ChapterDetail() {
   }, [id]);
 
   useEffect(() => {
+    const taskIdFromUrl = searchParams.get('generateTaskId') || '';
+    setGenerateTaskId(taskIdFromUrl);
+  }, [searchParams]);
+
+  useEffect(() => {
     if (!chapter) return;
     if (searchParams.get('edit') !== '1') return;
     setMode('edit');
@@ -124,6 +130,62 @@ function ChapterDetail() {
       return next;
     }, { replace: true });
   }, [chapter, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!generateTaskId) return undefined;
+
+    let stopped = false;
+
+    const clearGenerateTaskParam = () => {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete('generateTaskId');
+        return next;
+      }, { replace: true });
+    };
+
+    const poll = async () => {
+      try {
+        const res = await chapterApi.getGenerateTask(generateTaskId);
+        const task = res.data;
+
+        if (stopped) return;
+
+        if (task.status === 'running') {
+          setGenerating(true);
+          return;
+        }
+
+        setGenerating(false);
+        clearGenerateTaskParam();
+
+        if (task.status === 'done') {
+          await loadData();
+          setMode('read');
+          setGeneratePrompt('');
+          feedback.success('AI 生成已完成，正文和附加流程已刷新。');
+          return;
+        }
+
+        feedback.error(task.errorMessage || '生成失败，请稍后再试。');
+      } catch (error) {
+        if (stopped) return;
+
+        if (error?.response?.status === 404) {
+          setGenerating(false);
+          clearGenerateTaskParam();
+        }
+      }
+    };
+
+    poll();
+    const timer = window.setInterval(poll, 2000);
+
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [generateTaskId, feedback, setSearchParams]);
 
   const loadData = async () => {
     setLoading(true);
@@ -275,18 +337,19 @@ function ChapterDetail() {
     setReview(null);
     try {
       const res = await chapterApi.generate(id, generatePrompt);
-      setChapter(res.data.chapter);
-      setEditContent(res.data.chapter.content || '');
-      setEditTitle(res.data.chapter.title || '');
-      setReview(res.data.review);
-      setGeneratePrompt('');
-      await refreshVersions();
-      setMode('edit');
-      feedback.success('AI 已生成新正文草稿，请检查后保存。');
+      const taskId = res.data?.taskId;
+      if (!taskId) {
+        throw new Error('生成任务未返回 taskId');
+      }
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.set('generateTaskId', taskId);
+        return next;
+      }, { replace: true });
+      feedback.success('AI 生成任务已启动，页面关闭后也会继续执行。');
     } catch (error) {
       console.error('生成失败:', error);
       feedback.error(error.response?.data?.error || '生成失败，请稍后再试。');
-    } finally {
       setGenerating(false);
     }
   };
@@ -323,10 +386,12 @@ function ChapterDetail() {
       );
       const createdChapter = createRes.data;
       const generateRes = await chapterApi.generate(createdChapter.id);
-      const generatedChapter = generateRes.data?.chapter || createdChapter;
-      setNextChapter(generatedChapter);
-      feedback.success(`第 ${generatedChapter.chapter_number || createdChapter.chapter_number} 章已生成。`);
-      navigate(`/chapters/${generatedChapter.id || createdChapter.id}`);
+      const taskId = generateRes.data?.taskId;
+      setNextChapter(createdChapter);
+      feedback.success(`第 ${createdChapter.chapter_number} 章已创建，AI 生成任务已启动。`);
+      navigate(
+        `/chapters/${createdChapter.id}${taskId ? `?generateTaskId=${encodeURIComponent(taskId)}` : ''}`
+      );
     } catch (error) {
       console.error('生成下一章失败:', error);
       feedback.error(error.response?.data?.error || '生成下一章失败，请稍后再试。');

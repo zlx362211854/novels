@@ -1,6 +1,23 @@
 import { Sequelize } from 'sequelize';
 
-const VECTOR_DIMENSION = 2048;
+const EMBEDDING_MODEL_DIMENSIONS: Record<string, number> = {
+  'embedding-2': 1024,
+  'embedding-3': 2048,
+};
+
+function resolveVectorDimensionForModel(modelName?: string): number {
+  const normalized = String(modelName || process.env.ZHIPU_EMBEDDING_MODEL || 'embedding-3').trim();
+  const dimension = EMBEDDING_MODEL_DIMENSIONS[normalized];
+  if (!dimension) {
+    console.warn(
+      `[vector-store] unknown ZHIPU_EMBEDDING_MODEL="${normalized}", fallback to embedding-3 (2048 dims)`
+    );
+    return 2048;
+  }
+  return dimension;
+}
+
+const VECTOR_DIMENSION = resolveVectorDimensionForModel();
 const VECTOR_EXTENSION_LOADED = Symbol('sqlite_vec_extension_loaded');
 const VECTOR_TABLE_DEFINITIONS = [
   {
@@ -436,6 +453,7 @@ export {
   deleteStoryBibleEntryVector,
   deleteChapterChunkVectors,
   ensureVectorExtensionLoaded,
+  resolveVectorDimensionForModel,
   VECTOR_DIMENSION,
   ensureVectorSchema,
   getChapterChunkVectors,

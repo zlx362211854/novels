@@ -67,6 +67,7 @@ export const chapterApi = {
   update: (id, data) => api.put(`/chapters/${id}`, data),
   delete: (id) => api.delete(`/chapters/${id}`),
   generate: (id, userPrompt = '') => api.post(`/chapters/${id}/generate`, { userPrompt }),
+  getGenerateTask: (taskId) => api.get(`/chapters/generate-tasks/${taskId}`),
   regenerate: (id) => api.post(`/chapters/${id}/regenerate`),
   review: (id) => api.post(`/chapters/${id}/review`),
   revise: (id, reviewResult, userPrompt = '') => api.post(`/chapters/${id}/revise`, { reviewResult, userPrompt }),
