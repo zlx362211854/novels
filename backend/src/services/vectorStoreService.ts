@@ -1,13 +1,22 @@
 import { Sequelize } from 'sequelize';
 
-const VECTOR_DIMENSION = 1024;
+const VECTOR_DIMENSION = 2048;
 const VECTOR_EXTENSION_LOADED = Symbol('sqlite_vec_extension_loaded');
-const CHAPTER_CHUNK_VECTOR_TABLE_STATEMENT =
-  `CREATE VIRTUAL TABLE IF NOT EXISTS chapter_chunk_vec USING vec0(chunk_id integer, embedding float[${VECTOR_DIMENSION}])`;
-const VECTOR_TABLE_STATEMENTS = [
-  CHAPTER_CHUNK_VECTOR_TABLE_STATEMENT,
-  `CREATE VIRTUAL TABLE IF NOT EXISTS story_bible_vec USING vec0(entry_id integer, embedding float[${VECTOR_DIMENSION}])`,
+const VECTOR_TABLE_DEFINITIONS = [
+  {
+    name: 'chapter_chunk_vec',
+    createStatement:
+      `CREATE VIRTUAL TABLE IF NOT EXISTS chapter_chunk_vec USING vec0(chunk_id integer, embedding float[${VECTOR_DIMENSION}])`,
+  },
+  {
+    name: 'story_bible_vec',
+    createStatement:
+      `CREATE VIRTUAL TABLE IF NOT EXISTS story_bible_vec USING vec0(entry_id integer, embedding float[${VECTOR_DIMENSION}])`,
+  },
 ];
+const EXPECTED_DIMENSION_FRAGMENT = `float[${VECTOR_DIMENSION}]`;
+const CHAPTER_CHUNK_VECTOR_TABLE_STATEMENT = VECTOR_TABLE_DEFINITIONS[0].createStatement;
+const STORY_BIBLE_VECTOR_TABLE_STATEMENT = VECTOR_TABLE_DEFINITIONS[1].createStatement;
 
 function getSqliteVecModule(): null | {
   load?: (db: unknown) => void;
@@ -97,6 +106,10 @@ async function fetchAllWithParams(connection: any, statement: string, params: un
   throw new Error('Current SQLite connection does not support reading parameterized SQL query results');
 }
 
+async function fetchAll(connection: any, statement: string): Promise<any[]> {
+  return await fetchAllWithParams(connection, statement, []);
+}
+
 function decodeEmbedding(rawEmbedding: unknown): number[] | null {
   if (Array.isArray(rawEmbedding)) {
     return rawEmbedding;
@@ -178,8 +191,26 @@ async function ensureVectorSchema(sequelize: Sequelize): Promise<void> {
   await withRawConnection(sequelize, async (connection) => {
     await ensureVectorExtensionLoaded(sequelize, connection);
 
-    for (const statement of VECTOR_TABLE_STATEMENTS) {
-      await runSql(connection, statement);
+    const existingTables = await fetchAll(
+      connection,
+      `SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name IN (${VECTOR_TABLE_DEFINITIONS
+        .map((definition) => `'${definition.name}'`)
+        .join(', ')})`
+    );
+    const existingTableMap = new Map(
+      existingTables.map((row: any) => [String(row.name), typeof row.sql === 'string' ? row.sql : ''])
+    );
+
+    for (const definition of VECTOR_TABLE_DEFINITIONS) {
+      const existingSql = existingTableMap.get(definition.name);
+      if (existingSql && !existingSql.includes(EXPECTED_DIMENSION_FRAGMENT)) {
+        console.warn(
+          `[vector-store] recreating ${definition.name} due to dimension mismatch: expected ${EXPECTED_DIMENSION_FRAGMENT}`
+        );
+        await runSql(connection, `DROP TABLE IF EXISTS ${definition.name}`);
+      }
+
+      await runSql(connection, definition.createStatement);
     }
   });
 }
@@ -203,10 +234,7 @@ async function ensureChapterChunkVectorTable(sequelize: Sequelize, existingConne
 async function ensureStoryBibleVectorTable(sequelize: Sequelize, existingConnection?: any): Promise<void> {
   const ensureOnConnection = async (connection: any): Promise<void> => {
     await ensureVectorExtensionLoaded(sequelize, connection);
-    await runSql(
-      connection,
-      `CREATE VIRTUAL TABLE IF NOT EXISTS story_bible_vec USING vec0(entry_id integer, embedding float[${VECTOR_DIMENSION}])`
-    );
+    await runSql(connection, STORY_BIBLE_VECTOR_TABLE_STATEMENT);
   };
 
   if (existingConnection) {
@@ -408,6 +436,7 @@ export {
   deleteStoryBibleEntryVector,
   deleteChapterChunkVectors,
   ensureVectorExtensionLoaded,
+  VECTOR_DIMENSION,
   ensureVectorSchema,
   getChapterChunkVectors,
   getStoryBibleEntryVector,

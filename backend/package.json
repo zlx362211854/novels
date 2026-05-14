@@ -6,6 +6,7 @@
     "start": "ts-node src/index.ts",
     "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc",
+    "rebuild:vectors": "node dist/scripts/rebuildVectorStore.js",
     "test:sqlite-vec-bootstrap": "node --test test/sqlite-vec-bootstrap.test.js",
     "test": "node --test test/sqlite-vec-bootstrap.test.js"
   },
