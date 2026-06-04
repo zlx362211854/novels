@@ -1,0 +1,191 @@
+{
+  "name": "books-manage-vscode",
+  "displayName": "Books Manage",
+  "description": "Personal VS Code client for the books_manage novel backend.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:booksManageNovels",
+    "onCommand:booksManage.login",
+    "onCommand:booksManage.refresh",
+    "onCommand:booksManage.saveChapter",
+    "onCommand:booksManage.openChapter",
+    "onCommand:booksManage.generateChapter",
+    "onCommand:booksManage.reviewChapter",
+    "onCommand:booksManage.tuneChapter",
+    "onCommand:booksManage.rewriteSelectionSmooth",
+    "onCommand:booksManage.rewriteSelectionDescribe",
+    "onCommand:booksManage.rewriteSelectionCompress",
+    "onCommand:booksManage.rewriteSelectionPreserve",
+    "onCommand:booksManage.rewriteSelectionCustom",
+    "onFileSystem:books-manage"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Books Manage",
+      "properties": {
+        "booksManage.apiBaseUrl": {
+          "type": "string",
+          "default": "http://localhost:3001/api",
+          "description": "Base URL for the books_manage backend API."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "booksManage",
+          "title": "Books Manage",
+          "icon": "media/book.svg"
+        }
+      ]
+    },
+    "views": {
+      "booksManage": [
+        {
+          "id": "booksManageNovels",
+          "name": "Novels"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "booksManage.login",
+        "title": "Books Manage: Login"
+      },
+      {
+        "command": "booksManage.refresh",
+        "title": "Books Manage: Refresh"
+      },
+      {
+        "command": "booksManage.openChapter",
+        "title": "Books Manage: Open Chapter"
+      },
+      {
+        "command": "booksManage.saveChapter",
+        "title": "Books Manage: Save Chapter"
+      },
+      {
+        "command": "booksManage.generateChapter",
+        "title": "Books Manage: Generate Chapter"
+      },
+      {
+        "command": "booksManage.reviewChapter",
+        "title": "Books Manage: Review Chapter"
+      },
+      {
+        "command": "booksManage.tuneChapter",
+        "title": "Books Manage: Tune Chapter"
+      },
+      {
+        "command": "booksManage.rewriteSelectionSmooth",
+        "title": "Books Manage: 改得更流畅"
+      },
+      {
+        "command": "booksManage.rewriteSelectionDescribe",
+        "title": "Books Manage: 增强描写"
+      },
+      {
+        "command": "booksManage.rewriteSelectionCompress",
+        "title": "Books Manage: 压缩冗余"
+      },
+      {
+        "command": "booksManage.rewriteSelectionPreserve",
+        "title": "Books Manage: 保持原意改写"
+      },
+      {
+        "command": "booksManage.rewriteSelectionCustom",
+        "title": "Books Manage: 自定义改写"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "booksManage.saveChapter",
+        "key": "cmd+s",
+        "mac": "cmd+s",
+        "when": "resourceScheme == books-manage"
+      },
+      {
+        "command": "booksManage.saveChapter",
+        "key": "ctrl+s",
+        "when": "resourceScheme == books-manage"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "booksManage.refresh",
+          "when": "view == booksManageNovels",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "booksManage.openChapter",
+          "when": "view == booksManageNovels && viewItem == chapter",
+          "group": "inline"
+        },
+        {
+          "command": "booksManage.generateChapter",
+          "when": "view == booksManageNovels && viewItem == chapter",
+          "group": "ai@1"
+        },
+        {
+          "command": "booksManage.reviewChapter",
+          "when": "view == booksManageNovels && viewItem == chapter",
+          "group": "ai@2"
+        },
+        {
+          "command": "booksManage.tuneChapter",
+          "when": "view == booksManageNovels && viewItem == chapter",
+          "group": "ai@3"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "booksManage.rewriteSelectionSmooth",
+          "when": "resourceScheme == books-manage && editorHasSelection",
+          "group": "booksManageRewrite@1"
+        },
+        {
+          "command": "booksManage.rewriteSelectionDescribe",
+          "when": "resourceScheme == books-manage && editorHasSelection",
+          "group": "booksManageRewrite@2"
+        },
+        {
+          "command": "booksManage.rewriteSelectionCompress",
+          "when": "resourceScheme == books-manage && editorHasSelection",
+          "group": "booksManageRewrite@3"
+        },
+        {
+          "command": "booksManage.rewriteSelectionPreserve",
+          "when": "resourceScheme == books-manage && editorHasSelection",
+          "group": "booksManageRewrite@4"
+        },
+        {
+          "command": "booksManage.rewriteSelectionCustom",
+          "when": "resourceScheme == books-manage && editorHasSelection",
+          "group": "booksManageRewrite@5"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.3",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.8.3"
+  }
+}

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { setMaxListeners } from 'events';
 import * as chapterService from '../services/chapterService';
 import * as chapterMemoryService from '../services/chapterMemoryService';
+import * as selectionRewriteService from '../services/selectionRewriteService';
 import { ChapterMemory } from '../models/sequelize';
 import * as aiStatus from '../services/aiStatusService';
 
@@ -53,6 +54,26 @@ router.post('/:id/tune', async (req: Request, res: Response) => {
   } catch (error) {
     if (ac.signal.aborted) return;
     res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+router.post('/:id/rewrite-selection', async (req: Request, res: Response) => {
+  try {
+    (req as any).setTimeout(0);
+    const { selectedText, beforeText, afterText, mode, customInstruction } = req.body;
+    const result = await selectionRewriteService.rewriteSelection({
+      chapterId: Number(req.params.id),
+      selectedText: typeof selectedText === 'string' ? selectedText : '',
+      beforeText: typeof beforeText === 'string' ? beforeText : '',
+      afterText: typeof afterText === 'string' ? afterText : '',
+      mode: mode || 'preserve',
+      customInstruction: typeof customInstruction === 'string' ? customInstruction : '',
+    });
+    res.json(result);
+  } catch (error) {
+    const message = (error as Error).message;
+    const status = /不能为空|章节不存在|小说不存在/.test(message) ? 400 : 500;
+    res.status(status).json({ error: message });
   }
 });
 
