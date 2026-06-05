@@ -5,8 +5,20 @@ import * as chapterMemoryService from '../services/chapterMemoryService';
 import * as selectionRewriteService from '../services/selectionRewriteService';
 import { ChapterMemory } from '../models/sequelize';
 import * as aiStatus from '../services/aiStatusService';
+import { requireChapterAccess } from '../services/accessControlService';
 
 const router = Router({ mergeParams: true });
+
+router.param('id', async (req: Request, res: Response, next, value) => {
+  try {
+    const chapter = await requireChapterAccess(req, res, value);
+    if (!chapter) return;
+    (req as any).chapter = chapter;
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.post('/:id/revise', async (req: Request, res: Response) => {
   const ac = new AbortController();

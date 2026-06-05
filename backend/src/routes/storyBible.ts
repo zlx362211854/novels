@@ -1,7 +1,10 @@
 import { Router, Request, Response } from 'express';
 import * as storyBibleService from '../services/storyBibleService';
+import { requireNovelParamAccess } from '../services/accessControlService';
 
 const router = Router({ mergeParams: true });
+
+router.use(requireNovelParamAccess('novelId'));
 
 router.get('/', async (req: Request, res: Response) => {
   try {

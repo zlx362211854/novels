@@ -55,13 +55,13 @@ function assertBundleShape(bundle: any): asserts bundle is NovelExportBundle {
   }
 }
 
-async function buildImportedTitle(baseTitle: string): Promise<string> {
+async function buildImportedTitle(baseTitle: string, userId: number): Promise<string> {
   const rootTitle = baseTitle?.trim() || '未命名小说';
   const baseImportedTitle = `${rootTitle}（导入）`;
   let candidate = baseImportedTitle;
   let index = 2;
 
-  while (await Novel.findOne({ where: { title: candidate } })) {
+  while (await Novel.findOne({ where: { title: candidate, user_id: userId } })) {
     candidate = `${rootTitle}（导入 ${index}）`;
     index += 1;
   }
@@ -120,14 +120,15 @@ async function exportNovelBundle(novelId: number): Promise<NovelExportBundle> {
   };
 }
 
-async function importNovelBundle(bundle: NovelExportBundle): Promise<{ novelId: number; title: string }> {
+async function importNovelBundle(bundle: NovelExportBundle, userId: number): Promise<{ novelId: number; title: string }> {
   assertBundleShape(bundle);
 
-  const importedTitle = await buildImportedTitle(String(bundle.novel.title || '未命名小说'));
+  const importedTitle = await buildImportedTitle(String(bundle.novel.title || '未命名小说'), userId);
 
   return await sequelize.transaction(async (transaction) => {
     const createdNovel = await Novel.create(
       {
+        user_id: userId,
         title: importedTitle,
         description: bundle.novel.description || null,
         genre: bundle.novel.genre || null,

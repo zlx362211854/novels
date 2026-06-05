@@ -63,13 +63,13 @@ function buildFullMetadata(metadata: NovelBootstrapMetadata, fullArchitecture: D
   };
 }
 
-export async function createBootstrapNovel(metadata: NovelBootstrapMetadata): Promise<any> {
+export async function createBootstrapNovel(metadata: NovelBootstrapMetadata, userId: number): Promise<any> {
   return novelService.create({
     title: metadata.novel.title,
     description: metadata.novel.description,
     genre: metadata.novel.genre,
     aiConfig: metadata.aiConfig || undefined,
-  });
+  }, userId);
 }
 
 export async function saveBootstrapStoryBible(novelId: number, entries: Array<{

@@ -25,8 +25,9 @@ function serializeNovel(novel: any): any {
   };
 }
 
-async function create(data: CreateNovelData): Promise<Novel> {
+async function create(data: CreateNovelData, userId: number): Promise<Novel> {
   const novel = await Novel.create({
+    user_id: userId,
     title: data.title,
     description: data.description || null,
     genre: data.genre || null,
@@ -36,20 +37,21 @@ async function create(data: CreateNovelData): Promise<Novel> {
   return serializeNovel(novel);
 }
 
-async function findAll(): Promise<Novel[]> {
+async function findAll(userId: number): Promise<Novel[]> {
   const novels = await Novel.findAll({
+    where: { user_id: userId },
     order: [['updated_at', 'DESC']]
   });
   return novels.map(serializeNovel);
 }
 
-async function findById(id: string | number): Promise<Novel | null> {
-  const novel = await Novel.findByPk(id);
+async function findById(id: string | number, userId: number): Promise<Novel | null> {
+  const novel = await Novel.findOne({ where: { id, user_id: userId } });
   return serializeNovel(novel);
 }
 
-async function update(id: string | number, data: Partial<CreateNovelData>): Promise<Novel | null> {
-  const novel = await Novel.findByPk(id);
+async function update(id: string | number, userId: number, data: Partial<CreateNovelData>): Promise<Novel | null> {
+  const novel = await Novel.findOne({ where: { id, user_id: userId } });
   if (!novel) return null;
 
   if (data.title !== undefined) novel.title = data.title;
@@ -62,8 +64,8 @@ async function update(id: string | number, data: Partial<CreateNovelData>): Prom
   return serializeNovel(novel);
 }
 
-async function deleteNovel(id: string | number): Promise<boolean> {
-  const novel = await Novel.findByPk(id);
+async function deleteNovel(id: string | number, userId: number): Promise<boolean> {
+  const novel = await Novel.findOne({ where: { id, user_id: userId } });
   if (!novel) return false;
 
   await sequelize.transaction(async (t) => {

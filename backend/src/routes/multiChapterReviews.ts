@@ -1,6 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { setMaxListeners } from 'events';
 import * as service from '../services/multiChapterReviewService';
+import {
+  findNovelForUser,
+  getAuthUserId,
+  requireChapterAccess,
+  requireNovelParamAccess,
+  requireReviewAccess,
+} from '../services/accessControlService';
 
 const router = Router();
 
@@ -15,7 +22,21 @@ router.post('/', async (req: Request, res: Response) => {
     if (!novelId || !Array.isArray(chapterIds) || chapterIds.length < 2) {
       return res.status(400).json({ error: '请提供 novelId 和至少2个 chapterIds' });
     }
-    const reviewId = await service.startReview(Number(novelId), chapterIds.map(Number), ac.signal);
+    const numericNovelId = Number(novelId);
+    const userId = getAuthUserId(req);
+    const novel = await findNovelForUser(numericNovelId, userId);
+    if (!novel) {
+      return res.status(404).json({ error: '小说不存在' });
+    }
+    const numericChapterIds = chapterIds.map(Number);
+    for (const chapterId of numericChapterIds) {
+      const chapter = await requireChapterAccess(req, res, chapterId);
+      if (!chapter) return;
+      if (Number(chapter.novel_id) !== numericNovelId) {
+        return res.status(400).json({ error: '章节不属于当前小说' });
+      }
+    }
+    const reviewId = await service.startReview(numericNovelId, numericChapterIds, ac.signal);
     res.json({ reviewId });
   } catch (error) {
     if (ac.signal.aborted) return;
@@ -24,12 +45,23 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // 获取某小说的审阅历史（放在 /:reviewId 之前，避免路由歧义）
-router.get('/novel/:novelId', async (req: Request, res: Response) => {
+router.get('/novel/:novelId', requireNovelParamAccess('novelId'), async (req: Request, res: Response) => {
   try {
     const reviews = await service.listByNovel(Number(String(req.params.novelId)));
     res.json(reviews);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+router.param('reviewId', async (req: Request, res: Response, next, value) => {
+  try {
+    const review = await requireReviewAccess(req, res, value);
+    if (!review) return;
+    (req as any).review = review;
+    next();
+  } catch (error) {
+    next(error);
   }
 });
 

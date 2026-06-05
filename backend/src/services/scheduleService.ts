@@ -1,4 +1,4 @@
-import { ScheduledTask, Chapter } from '../models/sequelize';
+import { ScheduledTask, Chapter, Novel } from '../models/sequelize';
 import * as schedule from 'node-schedule';
 import * as chapterService from './chapterService';
 
@@ -36,8 +36,17 @@ async function create(data: CreateTaskData): Promise<any> {
   return savedTask;
 }
 
-async function findAll(): Promise<any[]> {
+async function findAll(userId?: number): Promise<any[]> {
+  const include = userId
+    ? [{
+      model: Novel,
+      as: 'novel',
+      attributes: ['id', 'user_id'],
+      where: { user_id: userId },
+    }]
+    : undefined;
   const tasks = await ScheduledTask.findAll({
+    include,
     order: [['scheduled_time', 'ASC']]
   });
   return tasks;
@@ -48,8 +57,18 @@ async function findById(id: number): Promise<any> {
   return task;
 }
 
-async function deleteTask(id: number): Promise<boolean> {
-  const task = await ScheduledTask.findByPk(id);
+async function deleteTask(id: number, userId?: number): Promise<boolean> {
+  const task = userId
+    ? await ScheduledTask.findOne({
+      where: { id },
+      include: [{
+        model: Novel,
+        as: 'novel',
+        attributes: ['id', 'user_id'],
+        where: { user_id: userId },
+      }]
+    })
+    : await ScheduledTask.findByPk(id);
   if (!task) return false;
 
   if (scheduledJobs.has(id)) {
@@ -99,8 +118,8 @@ function scheduleJob(task: any): void {
   scheduledJobs.set(task.id, job);
 }
 
-async function getTasks(): Promise<any[]> {
-  return findAll();
+async function getTasks(userId?: number): Promise<any[]> {
+  return findAll(userId);
 }
 
 async function createTask(data: CreateTaskData): Promise<any> {

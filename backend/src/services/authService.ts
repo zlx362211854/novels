@@ -1,9 +1,11 @@
 import { createHmac, timingSafeEqual } from 'crypto';
+import { User, ensureDefaultAdminUser, hashPassword } from '../models/sequelize';
 
 const AUTH_COOKIE_NAME = 'novels_admin_session';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface SessionPayload {
+  userId: number;
   username: string;
   expiresAt: number;
 }
@@ -82,17 +84,20 @@ function readSession(cookieHeader?: string | null): SessionPayload | null {
 
   try {
     const payload = JSON.parse(base64UrlDecode(encodedPayload)) as SessionPayload;
-    if (!payload?.username || !payload?.expiresAt) return null;
+    if (!payload?.userId || !payload?.username || !payload?.expiresAt) return null;
     if (payload.expiresAt <= Date.now()) return null;
-    if (payload.username !== getAdminUsername()) return null;
     return payload;
   } catch {
     return null;
   }
 }
 
-function validateCredentials(username: string, password: string): boolean {
-  return username === getAdminUsername() && password === getAdminPassword();
+async function validateCredentials(username: string, password: string): Promise<User | null> {
+  await ensureDefaultAdminUser();
+  const user = await User.findOne({ where: { username } });
+  if (!user) return null;
+  if (user.password_hash !== hashPassword(password)) return null;
+  return user;
 }
 
 export {

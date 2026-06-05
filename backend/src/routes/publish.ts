@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { setMaxListeners } from 'events';
 import * as publishService from '../services/publishService';
+import { requireChapterAccess } from '../services/accessControlService';
 
 const router = Router();
 
@@ -27,6 +28,8 @@ router.post('/:chapterId', async (req: Request, res: Response) => {
     if (!Array.isArray(platforms) || !platforms.length) {
       return res.status(400).json({ error: '请选择至少一个发布平台' });
     }
+    const chapter = await requireChapterAccess(req, res, String(req.params.chapterId));
+    if (!chapter) return;
     const result = await publishService.publishChapter(
       String(req.params.chapterId),
       platforms,

@@ -8,6 +8,7 @@ import * as architectureReviewService from '../services/architectureReviewServic
 import * as recurringTaskService from '../services/recurringTaskService';
 import * as exportService from '../services/exportService';
 import * as novelTransferService from '../services/novelTransferService';
+import { getAuthUserId, requireNovelParamAccess } from '../services/accessControlService';
 import { chapterGenerationGraph } from '../ai/graphs/chapterGenerationGraph';
 import { novelBootstrapGraph } from '../ai/graphs/novelBootstrapGraph';
 import * as aiStatus from '../services/aiStatusService';
@@ -15,13 +16,17 @@ import { Novel, Chapter, Architecture } from '../models/sequelize';
 
 const router = Router();
 
+async function findArchitectureInNovel(architectureId: number | string, novelId: number | string): Promise<any | null> {
+    return await Architecture.findOne({ where: { id: architectureId, novel_id: novelId } });
+}
+
 router.post('/', async (req: Request, res: Response) => {
     try {
         const { title, description, genre, publishConfig, aiConfig } = req.body;
         if (!title) {
             return res.status(400).json({ error: '标题不能为空' });
         }
-        const novel = await novelService.create({ title, description, genre, publishConfig, aiConfig });
+        const novel = await novelService.create({ title, description, genre, publishConfig, aiConfig }, getAuthUserId(req));
         res.status(201).json(novel);
     } catch (error) {
         res.status(500).json({ error: (error as Error).message });
@@ -39,6 +44,7 @@ router.post('/bootstrap', async (req: Request, res: Response) => {
             prompt: String(prompt).trim(),
             constraints: constraints || {},
             aiConfig: aiConfig || null,
+            userId: getAuthUserId(req),
             taskId,
             draft: null,
             result: null,
@@ -52,7 +58,7 @@ router.post('/bootstrap', async (req: Request, res: Response) => {
 router.post('/import-json', async (req: Request, res: Response) => {
     try {
         const { bundle } = req.body;
-        const result = await novelTransferService.importNovelBundle(bundle);
+        const result = await novelTransferService.importNovelBundle(bundle, getAuthUserId(req));
         res.status(201).json(result);
     } catch (error) {
         const message = (error as Error).message;
@@ -64,16 +70,18 @@ router.post('/import-json', async (req: Request, res: Response) => {
 
 router.get('/', async (req: Request, res: Response) => {
     try {
-        const novels = await novelService.findAll();
+        const novels = await novelService.findAll(getAuthUserId(req));
         res.json(novels);
     } catch (error) {
         res.status(500).json({ error: (error as Error).message });
     }
 });
 
+router.use('/:id', requireNovelParamAccess('id'));
+
 router.get('/:id', async (req: Request, res: Response) => {
     try {
-        const novel = await novelService.findById(String(req.params.id));
+        const novel = await novelService.findById(String(req.params.id), getAuthUserId(req));
         if (!novel) {
             return res.status(404).json({ error: '小说不存在' });
         }
@@ -86,7 +94,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.put('/:id', async (req: Request, res: Response) => {
     try {
         const { title, description, genre, publishConfig, aiConfig } = req.body;
-        const novel = await novelService.update(String(req.params.id), { title, description, genre, publishConfig, aiConfig });
+        const novel = await novelService.update(String(req.params.id), getAuthUserId(req), { title, description, genre, publishConfig, aiConfig });
         if (!novel) {
             return res.status(404).json({ error: '小说不存在' });
         }
@@ -98,7 +106,7 @@ router.put('/:id', async (req: Request, res: Response) => {
 
 router.delete('/:id', async (req: Request, res: Response) => {
     try {
-        const deleted = await novelService.deleteNovel(String(req.params.id));
+        const deleted = await novelService.deleteNovel(String(req.params.id), getAuthUserId(req));
         if (!deleted) {
             return res.status(404).json({ error: '小说不存在' });
         }
@@ -112,6 +120,10 @@ router.post('/:id/chapters', async (req: Request, res: Response) => {
     try {
         const { architectureId, chapterNumber, title, content, status } = req.body;
         const novelId = String(req.params.id);
+        if (architectureId) {
+            const architecture = await findArchitectureInNovel(Number(architectureId), novelId);
+            if (!architecture) return res.status(404).json({ error: '架构不存在' });
+        }
 
         const existingChapters = await chapterService.findByNovelId(novelId);
         const maxChapterNumber = existingChapters.reduce((max: number, ch: any) => Math.max(max, ch.chapter_number || 0), 0);
@@ -192,6 +204,10 @@ router.post('/:id/architectures', async (req: Request, res: Response) => {
         if (!level || !title) {
             return res.status(400).json({ error: 'level 和 title 不能为空' });
         }
+        if (parentId) {
+            const parent = await findArchitectureInNovel(Number(parentId), String(req.params.id));
+            if (!parent) return res.status(404).json({ error: '父级架构不存在' });
+        }
         const stringify = (v: any) => (v && typeof v === 'object' ? JSON.stringify(v) : v);
         const architecture = await architectureService.create({
             novelId: Number(req.params.id),
@@ -215,6 +231,10 @@ router.post('/:id/generate-architecture', async (req: Request, res: Response) =>
         if (!level) {
             return res.status(400).json({ error: 'level 不能为空' });
         }
+        if (parentId) {
+            const parent = await findArchitectureInNovel(Number(parentId), String(req.params.id));
+            if (!parent) return res.status(404).json({ error: '父级架构不存在' });
+        }
         const taskId = randomUUID();
         // 不绑定 req.signal：架构生成结果存入数据库，客户端刷新页面不应中断任务
         const result = await architectureAiService.generateArchitecture({
@@ -236,6 +256,8 @@ router.post('/:id/generate-chapter-architectures', async (req: Request, res: Res
     try {
         const { volumeId } = req.body;
         if (!volumeId) return res.status(400).json({ error: 'volumeId 不能为空' });
+        const volume = await findArchitectureInNovel(Number(volumeId), String(req.params.id));
+        if (!volume) return res.status(404).json({ error: '卷架构不存在' });
         const taskId = randomUUID();
         // 不绑定 req.signal：生成完成后存入数据库，刷新页面不中断任务
         const result = await architectureAiService.generateChapterArchitectures(
@@ -252,6 +274,8 @@ router.post('/:id/batch-create-chapter-architectures', async (req: Request, res:
     try {
         const { volumeId, chapters } = req.body;
         if (!volumeId || !Array.isArray(chapters)) return res.status(400).json({ error: 'volumeId 和 chapters 不能为空' });
+        const volume = await findArchitectureInNovel(Number(volumeId), String(req.params.id));
+        if (!volume) return res.status(404).json({ error: '卷架构不存在' });
         const result = await architectureService.replaceChapterArchitectures(
             Number(req.params.id), Number(volumeId), chapters
         );
@@ -268,7 +292,7 @@ router.post('/:id/generate-chapter-content', async (req: Request, res: Response)
         if (!chapterArchId) return res.status(400).json({ error: 'chapterArchId 不能为空' });
 
         // 先创建空章节，再生成内容
-        const arch = await Architecture.findByPk(chapterArchId);
+        const arch = await findArchitectureInNovel(Number(chapterArchId), String(req.params.id));
         if (!arch) return res.status(404).json({ error: '章架构不存在' });
 
         const existingChapters = await chapterService.findByNovelId(String(req.params.id));
@@ -302,13 +326,14 @@ router.post('/:id/batch-generate-chapters', async (req: Request, res: Response) 
     try {
         const { volumeId } = req.body;
         if (!volumeId) return res.status(400).json({ error: 'volumeId 不能为空' });
+        const volume = await findArchitectureInNovel(Number(volumeId), String(req.params.id));
+        if (!volume) return res.status(404).json({ error: '卷架构不存在' });
 
         const chapterArchs = await Architecture.findAll({
             where: { novel_id: req.params.id, level: 'chapter', parent_id: Number(volumeId) },
             order: [['id', 'ASC']],
         });
 
-        const volume = await Architecture.findByPk(Number(volumeId));
         const stepLabels = chapterArchs.map((arch: any, index: number) => `生成第 ${index + 1} 章：${arch.title}`);
         aiStatus.start(
             taskId,
@@ -454,6 +479,8 @@ router.post('/:id/apply-rewrite', async (req: Request, res: Response) => {
         if (Array.isArray(rewriteResult.volumes)) {
             for (const vol of rewriteResult.volumes) {
                 if (vol.id) {
+                    const volume = await findArchitectureInNovel(Number(vol.id), String(req.params.id));
+                    if (!volume) return res.status(404).json({ error: '卷架构不存在' });
                     await architectureService.update(vol.id, { title: vol.title, plotOutline: vol.plotOutline });
                     updated++;
                 } else {

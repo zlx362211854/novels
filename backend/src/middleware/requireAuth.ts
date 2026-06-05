@@ -6,7 +6,7 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!session) {
     return res.status(401).json({ error: '未登录或登录已过期' });
   }
-  (req as any).auth = { username: session.username };
+  (req as any).auth = { userId: session.userId, username: session.username };
   next();
 }
 

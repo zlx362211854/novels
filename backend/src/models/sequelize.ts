@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Sequelize, DataTypes, Model, Optional } from 'sequelize';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -25,8 +26,50 @@ const sequelize = new Sequelize({
   },
 });
 
+interface UserAttributes {
+  id?: number;
+  username: string;
+  password_hash: string;
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+interface UserCreationAttributes extends Optional<UserAttributes, 'id'> { }
+
+class User extends Model<UserAttributes, UserCreationAttributes> implements UserAttributes {
+  declare id: number;
+  declare username: string;
+  declare password_hash: string;
+  declare created_at: Date;
+  declare updated_at: Date;
+}
+
+User.init({
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  username: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    unique: true
+  },
+  password_hash: {
+    type: DataTypes.STRING,
+    allowNull: false
+  }
+}, {
+  tableName: 'users',
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
+  sequelize
+});
+
 interface NovelAttributes {
   id?: number;
+  user_id: number;
   title: string;
   description: string | null;
   genre: string | null;
@@ -40,6 +83,7 @@ interface NovelCreationAttributes extends Optional<NovelAttributes, 'id'> { }
 
 class Novel extends Model<NovelAttributes, NovelCreationAttributes> implements NovelAttributes {
   declare id: number;
+  declare user_id: number;
   declare title: string;
   declare description: string | null;
   declare genre: string | null;
@@ -54,6 +98,14 @@ Novel.init({
     type: DataTypes.INTEGER,
     primaryKey: true,
     autoIncrement: true
+  },
+  user_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'users',
+      key: 'id'
+    }
   },
   title: {
     type: DataTypes.STRING,
@@ -773,6 +825,9 @@ StoryBibleEntry.init({
   sequelize
 });
 
+User.hasMany(Novel, { foreignKey: 'user_id', as: 'novels', onDelete: 'CASCADE' });
+Novel.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
 Novel.hasMany(Architecture, { foreignKey: 'novel_id', as: 'architectures', onDelete: 'CASCADE' });
 Architecture.belongsTo(Novel, { foreignKey: 'novel_id', as: 'novel' });
 
@@ -809,6 +864,9 @@ ChapterChunk.belongsTo(Chapter, { foreignKey: 'chapter_id', as: 'chapter' });
 Novel.hasMany(StoryBibleEntry, { foreignKey: 'novel_id', as: 'storyBibleEntries', onDelete: 'CASCADE' });
 StoryBibleEntry.belongsTo(Novel, { foreignKey: 'novel_id', as: 'novel' });
 
+Novel.hasMany(MultiChapterReview, { foreignKey: 'novel_id', as: 'multiChapterReviews', onDelete: 'CASCADE' });
+MultiChapterReview.belongsTo(Novel, { foreignKey: 'novel_id', as: 'novel' });
+
 async function initDatabase(): Promise<void> {
   await sequelize.query('PRAGMA journal_mode = WAL;');
   await sequelize.query('PRAGMA busy_timeout = 3000;');
@@ -825,7 +883,24 @@ async function initDatabase(): Promise<void> {
 
 async function ensureLegacySchema(): Promise<void> {
   const queryInterface = sequelize.getQueryInterface();
+  const defaultUser = await ensureDefaultAdminUser();
+  if (typeof (queryInterface as any).addColumn !== 'function') return;
   const novelColumns = await queryInterface.describeTable('novels');
+  if (!novelColumns.user_id) {
+    await queryInterface.addColumn('novels', 'user_id', {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'users',
+        key: 'id'
+      }
+    });
+  }
+  await Novel.update(
+    { user_id: defaultUser.id } as any,
+    { where: { user_id: null as any } }
+  );
+
   if (!novelColumns.publish_config) {
     await queryInterface.addColumn('novels', 'publish_config', {
       type: DataTypes.TEXT,
@@ -937,8 +1012,36 @@ async function ensureLegacySchema(): Promise<void> {
   }
 }
 
+function hashPassword(password: string): string {
+  return createHash('sha256').update(password).digest('hex');
+}
+
+async function ensureDefaultAdminUser(): Promise<User> {
+  const username = process.env.ADMIN_USERNAME || 'admin';
+  const password = process.env.ADMIN_PASSWORD || '123456aA';
+  const passwordHash = hashPassword(password);
+  if (typeof (User as any).findOrCreate !== 'function') {
+    return { id: 1, username, password_hash: passwordHash } as User;
+  }
+  const [user] = await User.findOrCreate({
+    where: { username },
+    defaults: {
+      username,
+      password_hash: passwordHash,
+    }
+  });
+
+  if (user.password_hash !== passwordHash) {
+    user.password_hash = passwordHash;
+    await user.save();
+  }
+
+  return user;
+}
+
 export {
   sequelize,
+  User,
   Novel,
   Architecture,
   Chapter,
@@ -949,5 +1052,7 @@ export {
   MultiChapterReview,
   ChapterChunk,
   StoryBibleEntry,
-  initDatabase
+  initDatabase,
+  ensureDefaultAdminUser,
+  hashPassword,
 };

@@ -1,7 +1,13 @@
 import { Router, Request, Response } from 'express';
 import * as exportService from '../services/exportService';
+import {
+  requireChapterAccess,
+  requireNovelParamAccess,
+} from '../services/accessControlService';
 
 const router = Router();
+
+router.use('/novel/:novelId', requireNovelParamAccess('novelId'));
 
 router.get('/novel/:novelId', async (req: Request, res: Response) => {
   try {
@@ -19,6 +25,8 @@ router.get('/novel/:novelId', async (req: Request, res: Response) => {
 router.get('/chapter/:chapterId', async (req: Request, res: Response) => {
   try {
     const chapterId = Number(req.params.chapterId);
+    const chapter = await requireChapterAccess(req, res, chapterId);
+    if (!chapter) return;
     const result = await exportService.exportChapterContent(chapterId);
     res.json(result);
   } catch (error) {

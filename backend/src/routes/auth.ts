@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import {
   AUTH_COOKIE_NAME,
-  getAdminUsername,
   getCookieOptions,
   getSessionCookieValue,
   readSession,
@@ -10,21 +9,23 @@ import {
 
 const router = Router();
 
-router.post('/login', (req: Request, res: Response) => {
+router.post('/login', async (req: Request, res: Response) => {
   const username = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
 
-  if (!validateCredentials(username, password)) {
+  const user = await validateCredentials(username, password);
+  if (!user) {
     return res.status(401).json({ error: '用户名或密码错误' });
   }
 
   const cookieValue = getSessionCookieValue({
-    username: getAdminUsername(),
+    userId: user.id,
+    username: user.username,
     expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
   });
 
   res.cookie(AUTH_COOKIE_NAME, cookieValue, getCookieOptions());
-  res.json({ ok: true, username: getAdminUsername() });
+  res.json({ ok: true, username: user.username, userId: user.id });
 });
 
 router.post('/logout', (req: Request, res: Response) => {
@@ -40,7 +41,7 @@ router.get('/me', (req: Request, res: Response) => {
   if (!session) {
     return res.status(401).json({ authenticated: false });
   }
-  res.json({ authenticated: true, username: session.username });
+  res.json({ authenticated: true, username: session.username, userId: session.userId });
 });
 
 export default router;

@@ -1,7 +1,19 @@
 import { Router, Request, Response } from 'express';
 import * as architectureService from '../services/architectureService';
+import { requireArchitectureAccess } from '../services/accessControlService';
 
 const router = Router();
+
+router.param('id', async (req: Request, res: Response, next, value) => {
+  try {
+    const architecture = await requireArchitectureAccess(req, res, value);
+    if (!architecture) return;
+    (req as any).architecture = architecture;
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get('/:id', async (req: Request, res: Response) => {
   try {

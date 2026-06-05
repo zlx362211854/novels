@@ -19,6 +19,7 @@ const NovelBootstrapState = Annotation.Root({
   prompt: Annotation<string>,
   constraints: Annotation<any>,
   aiConfig: Annotation<any>,
+  userId: Annotation<number>,
   taskId: Annotation<string | null>,
   draft: Annotation<any | null>,
   result: Annotation<any>,
@@ -57,7 +58,7 @@ async function generateNode(state: typeof NovelBootstrapState.State) {
       cast: metadataResult.result.cast,
       story: metadataResult.result.story,
     };
-    const createdNovel = await createBootstrapNovel(metadata);
+    const createdNovel = await createBootstrapNovel(metadata, state.userId);
     const novelId = Number(createdNovel.id);
 
     tracker?.step(1);
